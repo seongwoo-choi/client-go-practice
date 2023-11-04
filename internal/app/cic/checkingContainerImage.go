@@ -1,55 +1,22 @@
-package main
+package cic
 
 import (
-	"flag"
 	"fmt"
 	appV1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
-	"path/filepath"
 	"time"
 )
 
-func main() {
-	var kubeconfig *string
-
-	// local 에서 실행 시 config 를 가져올 때 사용
-	// kubeconfig 경로를 지정하지 않으면 $HOME/.kube/config 로 지정
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	}
-	flag.Parse()
-
-	// 클러스터 내부에서 config 를 가져올 때 사용
-	// config, err := rest.InClusterConfig()
-	// if err != nil {
-	//		panic(err.Error())
-	// }
-
-	// use the current context in kubeconfig
-	config, configErr := clientcmd.BuildConfigFromFlags("", *kubeconfig)
-	if configErr != nil {
-		panic(configErr.Error())
-	}
-
-	// create the clientSet
-	clientSet, clientSdtErr := kubernetes.NewForConfig(config)
-	if clientSdtErr != nil {
-		panic(clientSdtErr.Error())
-	}
-
+func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 	factory := informers.NewSharedInformerFactory(clientSet, time.Second*30)
-	informer := factory.Apps().V1().Deployments().Informer()
+	Informer := factory.Apps().V1().Deployments().Informer()
 
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	Informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			deploymentOld, _ := oldObj.(*appV1.Deployment)
 			deploymentNew, _ := newObj.(*appV1.Deployment)
@@ -111,9 +78,8 @@ func main() {
 			} else if deploymentNewContainerLength == deploymentOldContainerLength {
 				for i := 0; i < deploymentNewContainerLength; i++ {
 					if deploymentOld.Spec.Template.Spec.Containers[i].Image != deploymentNew.Spec.Template.Spec.Containers[i].Image {
-						fmt.Printf("%s Deployment Image Updated\n", deploymentNew.Name)
-						fmt.Printf("Old Deployment Image: %s\n", deploymentOld.Spec.Template.Spec.Containers[i].Image)
-						fmt.Printf("New Deployment Image: %s\n", deploymentNew.Spec.Template.Spec.Containers[i].Image)
+						fmt.Printf("%s Deployment Container Image Updated\n", deploymentNew.Name)
+						fmt.Printf("Change Container Image: %s =====>>> %s\n", deploymentOld.Spec.Template.Spec.Containers[i].Image, deploymentNew.Spec.Template.Spec.Containers[i].Image)
 						fmt.Printf("Deployment Namespace: %s\n", deploymentNew.Namespace)
 						fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
 
@@ -131,8 +97,7 @@ func main() {
 		},
 	})
 
-	go informer.Run(stopCh)
+	go Informer.Run(stopCh)
 
-	// Wait forever
 	select {}
 }
