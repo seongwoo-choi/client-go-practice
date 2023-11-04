@@ -1,4 +1,4 @@
-package cic
+package checkingContainerImage
 
 import (
 	"fmt"

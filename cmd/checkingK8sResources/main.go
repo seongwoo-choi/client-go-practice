@@ -1,7 +1,7 @@
 package main
 
 import (
-	"client-go/internal/app/cic"
+	"client-go/internal/app/checkingContainerImage"
 	"flag"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -39,5 +39,5 @@ func main() {
 		panic(clientSdtErr.Error())
 	}
 
-	cic.CheckingContainerImage(clientSet)
+	checkingContainerImage.CheckingContainerImage(clientSet)
 }
