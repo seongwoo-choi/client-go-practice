@@ -23,15 +23,15 @@ func main() {
 	flag.Parse()
 
 	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
-	if err != nil {
-		panic(err.Error())
+	config, configErr := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if configErr != nil {
+		panic(configErr.Error())
 	}
 
 	// create the clientSet
-	clientSet, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
+	clientSet, clientSdtErr := kubernetes.NewForConfig(config)
+	if clientSdtErr != nil {
+		panic(clientSdtErr.Error())
 	}
 
 	factory := informers.NewSharedInformerFactory(clientSet, time.Second*30)
@@ -44,15 +44,28 @@ func main() {
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			deploymentOld, _ := oldObj.(*appV1.Deployment)
 			deploymentNew, _ := newObj.(*appV1.Deployment)
-			for i := 0; i < len(deploymentNew.Spec.Template.Spec.Containers); i++ {
-				if deploymentOld.Spec.Template.Spec.Containers[i].Image != deploymentNew.Spec.Template.Spec.Containers[i].Image {
-					fmt.Printf("%s Deployment Image Updated\n", deploymentNew.Name)
-					fmt.Printf("Old Deployment Image: %s\n", deploymentOld.Spec.Template.Spec.Containers[i].Image)
-					fmt.Printf("New Deployment Image: %s\n", deploymentNew.Spec.Template.Spec.Containers[i].Image)
-					fmt.Printf("Deployment Namespace: %s\n", deploymentNew.Namespace)
-					fmt.Printf("Deployment CreationTime: %s\n", deploymentOld.CreationTimestamp)
-					fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
-					// datadog metric 으로 전송(prism2 api 호출)
+			deploymentNewContainerLength := len(deploymentNew.Spec.Template.Spec.Containers)
+			deploymentOldContainerLength := len(deploymentOld.Spec.Template.Spec.Containers)
+
+			// 만약 deploymentOld 와 deploymentNew 의 container 갯수가 다르면 새롭게 추가된 container 이므로 해당 container 의 정보를 출력한다.
+			if deploymentNewContainerLength != deploymentOldContainerLength {
+				fmt.Printf("%s Deployment Container Added\n", deploymentNew.Name)
+				fmt.Printf("Deployment Namespace: %s\n", deploymentNew.Namespace)
+				fmt.Printf("Deployment CreationTime: %s\n", deploymentOld.CreationTimestamp)
+				fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
+				fmt.Printf("New Container Name: %s\n", deploymentNew.Spec.Template.Spec.Containers[deploymentNewContainerLength-1].Name)
+				// datadog metric 으로 전송(prism2 api 호출)
+			} else {
+				for i := 0; i < deploymentNewContainerLength; i++ {
+					if deploymentOld.Spec.Template.Spec.Containers[i].Image != deploymentNew.Spec.Template.Spec.Containers[i].Image {
+						fmt.Printf("%s Deployment Image Updated\n", deploymentNew.Name)
+						fmt.Printf("Old Deployment Image: %s\n", deploymentOld.Spec.Template.Spec.Containers[i].Image)
+						fmt.Printf("New Deployment Image: %s\n", deploymentNew.Spec.Template.Spec.Containers[i].Image)
+						fmt.Printf("Deployment Namespace: %s\n", deploymentNew.Namespace)
+						fmt.Printf("Deployment CreationTime: %s\n", deploymentOld.CreationTimestamp)
+						fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
+						// datadog metric 으로 전송(prism2 api 호출)
+					}
 				}
 			}
 		},
