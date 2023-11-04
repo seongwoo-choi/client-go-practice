@@ -48,12 +48,29 @@ func main() {
 			deploymentOldContainerLength := len(deploymentOld.Spec.Template.Spec.Containers)
 
 			// 만약 deploymentOld 와 deploymentNew 의 container 갯수가 다르면 새롭게 추가된 container 이므로 해당 container 의 정보를 출력한다.
-			if deploymentNewContainerLength != deploymentOldContainerLength {
+			if deploymentNewContainerLength > deploymentOldContainerLength {
 				fmt.Printf("%s Deployment Container Added\n", deploymentNew.Name)
 				fmt.Printf("Deployment Namespace: %s\n", deploymentNew.Namespace)
 				fmt.Printf("Deployment CreationTime: %s\n", deploymentOld.CreationTimestamp)
 				fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
-				fmt.Printf("New Container Name: %s\n", deploymentNew.Spec.Template.Spec.Containers[deploymentNewContainerLength-1].Name)
+				for i := 0; i < deploymentNewContainerLength; i++ {
+					if deploymentOld.Spec.Template.Spec.Containers[i].Name != deploymentNew.Spec.Template.Spec.Containers[i].Name {
+						fmt.Printf("Added Container Name: %s\n", deploymentNew.Spec.Template.Spec.Containers[i].Name)
+						// datadog metric 으로 전송(prism2 api 호출)
+					}
+				}
+				// datadog metric 으로 전송(prism2 api 호출)
+			} else if deploymentNewContainerLength < deploymentOldContainerLength {
+				fmt.Printf("%s Deployment Container Deleted\n", deploymentOld.Name)
+				fmt.Printf("Deployment Namespace: %s\n", deploymentOld.Namespace)
+				fmt.Printf("Deployment CreationTime: %s\n", deploymentOld.CreationTimestamp)
+				fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
+				for i := 0; i < deploymentOldContainerLength; i++ {
+					if deploymentOld.Spec.Template.Spec.Containers[i].Name != deploymentNew.Spec.Template.Spec.Containers[i].Name {
+						fmt.Printf("Deleted Container Name: %s\n", deploymentOld.Spec.Template.Spec.Containers[i].Name)
+						// datadog metric 으로 전송(prism2 api 호출)
+					}
+				}
 				// datadog metric 으로 전송(prism2 api 호출)
 			} else {
 				for i := 0; i < deploymentNewContainerLength; i++ {
