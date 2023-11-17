@@ -11,7 +11,8 @@ import (
 )
 
 func GetKubeClientSet(kubeConfigFile string) (*kubernetes.Clientset, error) {
-	if kubeConfigFile == "local" {
+	switch {
+	case kubeConfigFile == "local":
 		var kubeConfig *string
 		// local 에서 실행 시 config 를 가져올 때 사용
 		// kubeConfig 경로를 지정하지 않으면 $HOME/.kube/config 로 지정
@@ -27,14 +28,14 @@ func GetKubeClientSet(kubeConfigFile string) (*kubernetes.Clientset, error) {
 			return nil, configErr
 		}
 		return getClientSet(config)
-	} else if kubeConfigFile == "cluster" {
+	case kubeConfigFile == "cluster":
 		//클러스터 내부에서 config 를 가져올 때 사용
 		config, err := rest.InClusterConfig()
 		if err != nil {
 			return nil, err
 		}
 		return getClientSet(config)
-	} else {
+	default:
 		return nil, fmt.Errorf("couldn't parse bencoded string")
 	}
 }
