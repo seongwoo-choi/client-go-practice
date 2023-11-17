@@ -24,27 +24,27 @@ func GetKubeClientSet(kubeConfigFile string) (*kubernetes.Clientset, error) {
 		// use the current context in kubeConfig
 		config, configErr := clientCmd.BuildConfigFromFlags("", *kubeConfig)
 		if configErr != nil {
-			panic(configErr.Error())
+			return nil, configErr
 		}
-		return getClientSet(config), nil
+		return getClientSet(config)
 	} else if kubeConfigFile == "cluster" {
 		//클러스터 내부에서 config 를 가져올 때 사용
 		config, err := rest.InClusterConfig()
 		if err != nil {
-			panic(err.Error())
+			return nil, err
 		}
-		return getClientSet(config), nil
+		return getClientSet(config)
 	} else {
 		return nil, fmt.Errorf("couldn't parse bencoded string")
 	}
 }
 
-func getClientSet(config *rest.Config) *kubernetes.Clientset {
+func getClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
 	// create the clientSet
 	clientSet, clientSdtErr := kubernetes.NewForConfig(config)
 	if clientSdtErr != nil {
-		panic(clientSdtErr.Error())
+		return nil, clientSdtErr
 	}
 
-	return clientSet
+	return clientSet, nil
 }
