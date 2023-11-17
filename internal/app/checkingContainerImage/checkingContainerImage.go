@@ -2,11 +2,12 @@ package checkingContainerImage
 
 import (
 	"fmt"
+	"time"
+
 	appV1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
-	"time"
 )
 
 func CheckingContainerImage(clientSet *kubernetes.Clientset) {
