@@ -10,6 +10,31 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+func loggingDeployment(deployment *appV1.Deployment) {
+	fmt.Printf("Deployment Namespace: %s\n", deployment.Namespace)
+	fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
+}
+
+func addContainerImage(deploymentOld *appV1.Deployment, deploymentNew *appV1.Deployment, ca map[string]string) map[string]string {
+	for i := 0; i < len(deploymentNew.Spec.Template.Spec.Containers); i++ {
+		c := deploymentNew.Spec.Template.Spec.Containers[i].Image
+		found := false
+
+		for j := 0; j < len(deploymentOld.Spec.Template.Spec.Containers); j++ {
+			if c == deploymentOld.Spec.Template.Spec.Containers[j].Image {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			ca[c] = c
+		}
+	}
+
+	return ca
+}
+
 func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 	factory := informers.NewSharedInformerFactory(clientSet, time.Second*30)
 	Informer := factory.Apps().V1().Deployments().Informer()
@@ -31,20 +56,9 @@ func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 			if deploymentNewContainerLength > deploymentOldContainerLength {
 				// 컨테이너 추가 시
 				fmt.Printf("%s Deployment Container Added\n", deploymentNew.Name)
-				fmt.Printf("Deployment Namespace: %s\n", deploymentNew.Namespace)
-				fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
+				loggingDeployment(deploymentNew)
+				addContainerImage(deploymentOld, deploymentNew, ca)
 
-				// 추가 된 container 의 이름을 map 에 저장
-				for i := 0; i < deploymentNewContainerLength; i++ {
-					c := deploymentNew.Spec.Template.Spec.Containers[i].Image
-					for j := 0; j < deploymentOldContainerLength; j++ {
-						if c == deploymentOld.Spec.Template.Spec.Containers[j].Image {
-							break
-						} else if j == deploymentOldContainerLength-1 {
-							ca[c] = c
-						}
-					}
-				}
 				for _, v := range ca {
 					fmt.Printf("Added Container Name: %s\n", v)
 				}
@@ -53,20 +67,9 @@ func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 			} else if deploymentNewContainerLength < deploymentOldContainerLength {
 				// 컨테이너 삭제 시
 				fmt.Printf("%s Deployment Container Deleted\n", deploymentOld.Name)
-				fmt.Printf("Deployment Namespace: %s\n", deploymentOld.Namespace)
-				fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
+				loggingDeployment(deploymentOld)
+				addContainerImage(deploymentNew, deploymentOld, ca)
 
-				// 삭제 된 container 를 map 에 저장
-				for i := 0; i < deploymentOldContainerLength; i++ {
-					c := deploymentOld.Spec.Template.Spec.Containers[i].Image
-					for j := 0; j < deploymentNewContainerLength; j++ {
-						if c == deploymentNew.Spec.Template.Spec.Containers[j].Image {
-							break
-						} else if j == deploymentNewContainerLength-1 {
-							ca[c] = c
-						}
-					}
-				}
 				for _, v := range ca {
 					fmt.Printf("Deleted Container Name: %s\n", v)
 				}
