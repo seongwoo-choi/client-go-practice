@@ -15,13 +15,13 @@ func loggingDeployment(deployment *appV1.Deployment) {
 	fmt.Printf("Updated Deployment Time: %s\n", time.Now().UTC())
 }
 
-func addContainerImage(deploymentOld *appV1.Deployment, deploymentNew *appV1.Deployment, ca map[string]string) map[string]string {
-	for i := 0; i < len(deploymentNew.Spec.Template.Spec.Containers); i++ {
-		c := deploymentNew.Spec.Template.Spec.Containers[i].Image
+func addContainerImage(deploymentA *appV1.Deployment, deploymentB *appV1.Deployment, ca map[string]string) map[string]string {
+	for i := 0; i < len(deploymentB.Spec.Template.Spec.Containers); i++ {
+		c := deploymentB.Spec.Template.Spec.Containers[i].Image
 		found := false
 
-		for j := 0; j < len(deploymentOld.Spec.Template.Spec.Containers); j++ {
-			if c == deploymentOld.Spec.Template.Spec.Containers[j].Image {
+		for j := 0; j < len(deploymentA.Spec.Template.Spec.Containers); j++ {
+			if c == deploymentA.Spec.Template.Spec.Containers[j].Image {
 				found = true
 				break
 			}
