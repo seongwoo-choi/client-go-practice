@@ -2,14 +2,16 @@ package main
 
 import (
 	"client-go/config"
+	drainnode "client-go/internal/app/drainNode"
 	evictedpod "client-go/internal/app/evictedPod"
 	"os"
 
-	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/log"
-	"github.com/gofiber/fiber/v3/middleware/healthcheck"
-	"github.com/gofiber/fiber/v3/middleware/logger"
-	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/log"
+	"github.com/gofiber/fiber/v2/middleware/healthcheck"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/monitor"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 )
 
 func main() {
@@ -31,6 +33,12 @@ func main() {
 		TimeZone:   "Asia/Seoul",
 	}))
 
+	app.Use(recover.New())
+
+	app.Use(healthcheck.New(healthcheck.Config{
+		ReadinessEndpoint: "/monitor/healthcheck",
+	}))
+
 	file, err := os.OpenFile("./file.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
@@ -40,21 +48,23 @@ func main() {
 		Output: file,
 	}))
 
-	app.Use(recover.New())
-	api := app.Group("/api/v1")
+	app.Get("/metrics", monitor.New())
 
-	app.Get("/monitor/healthcheck", healthcheck.NewHealthChecker(healthcheck.Config{
-		Probe: func(c fiber.Ctx) bool {
-			return true
-		},
-	}))
+	apiV1 := app.Group("/api/v1")
 
-	api.Get("/", func(c fiber.Ctx) error {
-		return c.JSON("hello world")
+	apiV1.Get("/evicted-pods", func(c *fiber.Ctx) error {
+		err := evictedpod.EvictedPods(clientSet)
+		if err != nil {
+			log.Error(err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"msg": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusNoContent).JSON(fiber.Map{})
 	})
 
-	app.Get("/api/v1/evicted-pods", func(c fiber.Ctx) error {
-		err := evictedpod.EvictedPods(clientSet)
+	apiV1.Get("/drain-node", func(c *fiber.Ctx) error {
+		err := drainnode.DrainNode(clientSet)
 		if err != nil {
 			log.Error(err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
