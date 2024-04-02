@@ -19,8 +19,6 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 		return err
 	}
 
-	// log.Info("Draining nodes with disk usage over " + percentage + "%" + "... Drain Nodes: " + fmt.Sprintf("%v", overNodes))
-
 	nodes, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return err
@@ -35,20 +33,27 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 		}
 	}
 
+	// 각 노드 별로 파드 종료 작업을 실행
 	for _, nodeName := range drainNodeNames {
-		log.Info("Draining node " + nodeName + "...")
-		err := cordenNode(clientSet, nodeName)
-		if err != nil {
-			return err
+		if err := drainSingleNode(clientSet, nodeName); err != nil {
+			// 오류 로깅 후 다음 노드로 넘어감. 타임아웃 오류도 여기서 처리됨.
+			log.Error("Error draining node " + nodeName + ": " + err.Error())
 		}
 	}
 
-	for _, nodeName := range drainNodeNames {
-		log.Info("Evicting pods in node " + nodeName + "...")
-		err := evictedPod(clientSet, nodeName)
-		if err != nil {
-			return err
-		}
+	return nil
+}
+
+// drainSingleNode 함수는 하나의 노드에 대해 코르돈 및 파드 종료 작업을 수행
+func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
+	log.Info("Draining node " + nodeName + "...")
+	if err := cordenNode(clientSet, nodeName); err != nil {
+		return err
+	}
+
+	log.Info("Evicting pods in node " + nodeName + "...")
+	if err := evictedPod(clientSet, nodeName); err != nil {
+		return err
 	}
 
 	return nil
@@ -76,7 +81,7 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 	// 일단 위 과정을 생략하고 단순화하여 모든 파드를 조회
 	log.Info("Listing pods in node", nodeName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	for {
