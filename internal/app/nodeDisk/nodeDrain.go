@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/gofiber/fiber/v2/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -53,6 +55,21 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 
 	log.Info("Evicting pods in node " + nodeName + "...")
 	if err := evictedPod(clientSet, nodeName); err != nil {
+		return err
+	}
+
+	// 노드의 Instance ID 를 조회
+	instanceId, err := getNodeInstanceId(clientSet, nodeName)
+	if err != nil {
+		return err
+	}
+	if instanceId == "" {
+		return fmt.Errorf("failed to get instance ID for node %s", nodeName)
+	}
+
+	// 인스턴스 ID 로 EC2 인스턴스를 종료
+	log.Info("Terminating instance " + instanceId + "...")
+	if err := terminatingInstance(instanceId); err != nil {
 		return err
 	}
 
@@ -112,4 +129,29 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 			time.Sleep(10 * time.Second)
 		}
 	}
+}
+
+// 인스턴스 ID 로 EC2 인스턴스를 종료
+func terminatingInstance(instanceId string) error {
+	// 인스턴스 종료 로직
+	sess := session.Must(session.NewSession())
+	svc := ec2.New(sess)
+	_, err := svc.TerminateInstances(&ec2.TerminateInstancesInput{
+		InstanceIds: []*string{&instanceId},
+	})
+	return err
+}
+
+func getNodeInstanceId(clientSet *kubernetes.Clientset, nodeName string) (string, error) {
+	node, err := clientSet.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == "InternalIP" {
+			return addr.Address, nil
+		}
+	}
+	return "", fmt.Errorf("failed to get internal IP for node %s", nodeName)
 }
