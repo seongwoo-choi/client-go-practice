@@ -2,6 +2,7 @@ package main
 
 import (
 	"client-go/config"
+	"client-go/internal/app/checkingContainerImage"
 	evictedpod "client-go/internal/app/evictedPod"
 	nodeDiskUsage "client-go/internal/app/nodeDisk"
 
@@ -60,14 +61,14 @@ func main() {
 	apiV1 := app.Group("/api/v1")
 
 	apiV1.Get("/evicted-pods", func(c *fiber.Ctx) error {
-		err := evictedpod.EvictedPods(clientSet)
+		deletedPods, err := evictedpod.EvictedPods(clientSet)
 		if err != nil {
 			log.Error(err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"msg": err.Error(),
 			})
 		}
-		return c.Status(fiber.StatusNoContent).JSON(fiber.Map{})
+		return c.Status(fiber.StatusOK).JSON(deletedPods)
 	})
 
 	apiV1.Get("/node-disk-usage", func(c *fiber.Ctx) error {
@@ -106,7 +107,13 @@ func main() {
 		return c.Status(fiber.StatusAccepted).SendString("Node drain process started")
 	})
 
-	// checkingContainerImage.CheckingContainerImage(clientSet)
+	apiV1.Get("/checking-container-image", func(c *fiber.Ctx) error {
+		// 고루틴을 사용하여 NodeDrain 함수를 비동기적으로 실행
+		go func() {
+			checkingContainerImage.CheckingContainerImage(clientSet)
+		}()
+		return c.Status(fiber.StatusAccepted).SendString("Checking container image process started")
+	})
 
 	log.Fatal(app.Listen(":3000"))
 }

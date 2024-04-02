@@ -10,9 +10,12 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-func loggingDeployment(deployment *appV1.Deployment) {
-	log.Info("deployment Namespace: %s\n", deployment.Namespace)
-	log.Info("updated Deployment Time: %s\n", time.Now().UTC())
+type DeploymentContainer struct {
+	DeploymentName        string
+	OldContainerImageName string
+	NewContainerImageName string
+	Namespace             string
+	UpdatedTime           time.Time
 }
 
 func addContainerImage(deploymentA *appV1.Deployment, deploymentB *appV1.Deployment, ca map[string]string) map[string]string {
@@ -36,6 +39,7 @@ func addContainerImage(deploymentA *appV1.Deployment, deploymentB *appV1.Deploym
 }
 
 func CheckingContainerImage(clientSet *kubernetes.Clientset) {
+	var deploymentContainer DeploymentContainer
 	factory := informers.NewSharedInformerFactory(clientSet, time.Second*30)
 	Informer := factory.Apps().V1().Deployments().Informer()
 
@@ -56,41 +60,51 @@ func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 			if deploymentNewContainerLength > deploymentOldContainerLength {
 				// 컨테이너 추가 시
 				log.Info("%s Deployment Container Added\n", deploymentNew.Name)
-				loggingDeployment(deploymentNew)
+
 				addContainerImage(deploymentOld, deploymentNew, ca)
+				deploymentContainer.DeploymentName = deploymentNew.Name
+				deploymentContainer.Namespace = deploymentNew.Namespace
+				deploymentContainer.UpdatedTime = time.Now().UTC()
+				log.Info(deploymentContainer)
 
 				for _, v := range ca {
-					log.Info("Added Container Name: %s\n", v)
+					log.Info("Added Container Name: " + v)
 				}
 
 				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
 			} else if deploymentNewContainerLength < deploymentOldContainerLength {
 				// 컨테이너 삭제 시
 				log.Info("%s Deployment Container Deleted\n", deploymentOld.Name)
-				loggingDeployment(deploymentOld)
+
 				addContainerImage(deploymentNew, deploymentOld, ca)
+				deploymentContainer.DeploymentName = deploymentOld.Name
+				deploymentContainer.Namespace = deploymentOld.Namespace
+				deploymentContainer.UpdatedTime = time.Now().UTC()
+				log.Info(deploymentContainer)
 
 				for _, v := range ca {
-					log.Info("Deleted Container Name: %s\n", v)
+					log.Info("Deleted Container Name: " + v)
 				}
 				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
 
 			} else if deploymentNewContainerLength == deploymentOldContainerLength {
 				for i := 0; i < deploymentNewContainerLength; i++ {
 					if deploymentOld.Spec.Template.Spec.Containers[i].Image != deploymentNew.Spec.Template.Spec.Containers[i].Image {
-						log.Info("%s Deployment Container Image Updated\n", deploymentNew.Name)
-						log.Info("Change Container Image: %s =====>>> %s\n", deploymentOld.Spec.Template.Spec.Containers[i].Image, deploymentNew.Spec.Template.Spec.Containers[i].Image)
-						log.Info("Deployment Namespace: %s\n", deploymentNew.Namespace)
-						log.Info("Updated Deployment Time: %s\n", time.Now().UTC())
-
+						deploymentContainer.DeploymentName = deploymentNew.Name
+						deploymentContainer.OldContainerImageName = deploymentOld.Spec.Template.Spec.Containers[i].Image
+						deploymentContainer.NewContainerImageName = deploymentNew.Spec.Template.Spec.Containers[i].Image
+						deploymentContainer.Namespace = deploymentNew.Namespace
+						deploymentContainer.UpdatedTime = time.Now().UTC()
+						log.Info(deploymentContainer)
 						// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
 					}
 				}
 			} else {
-				log.Info("Something Wrong\n")
-				log.Info("Deployment Name: %s\n", deploymentNew.Name)
-				log.Info("Deployment Namespace: %s\n", deploymentNew.Namespace)
-				log.Info("Updated Deployment Time: %s\n", time.Now().UTC())
+				log.Info("Something Wrong")
+				deploymentContainer.DeploymentName = deploymentNew.Name
+				deploymentContainer.Namespace = deploymentNew.Namespace
+				deploymentContainer.UpdatedTime = time.Now().UTC()
+				log.Info(deploymentContainer)
 
 				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
 			}
