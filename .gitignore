@@ -17,3 +17,4 @@ go.sum
 # vendor/
 cmd/checkingK8sResources/file.log
 cmd/checkingK8sResources/tmp
+.env

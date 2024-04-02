@@ -2,8 +2,8 @@ package main
 
 import (
 	"client-go/config"
-	drainnode "client-go/internal/app/drainNode"
 	evictedpod "client-go/internal/app/evictedPod"
+	"client-go/internal/app/nodeDiskUsage"
 	"os"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/monitor"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -48,6 +49,11 @@ func main() {
 		Output: file,
 	}))
 
+	err = godotenv.Load("../../.env")
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	app.Get("/metrics", monitor.New())
 
 	apiV1 := app.Group("/api/v1")
@@ -63,15 +69,20 @@ func main() {
 		return c.Status(fiber.StatusNoContent).JSON(fiber.Map{})
 	})
 
-	apiV1.Get("/drain-node", func(c *fiber.Ctx) error {
-		err := drainnode.DrainNode(clientSet)
+	apiV1.Get("/node-disk-usage", func(c *fiber.Ctx) error {
+		percentage := c.Query("percentage")
+		if percentage == "" {
+			percentage = "70"
+		}
+		result, err := nodeDiskUsage.NodeDiskUsage(clientSet, percentage)
 		if err != nil {
 			log.Error(err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"msg": err.Error(),
 			})
 		}
-		return c.Status(fiber.StatusNoContent).JSON(fiber.Map{})
+		log.Info(result)
+		return c.Status(fiber.StatusOK).JSON(result)
 	})
 
 	// checkingContainerImage.CheckingContainerImage(clientSet)
