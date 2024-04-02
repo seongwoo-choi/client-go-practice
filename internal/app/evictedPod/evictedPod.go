@@ -27,7 +27,7 @@ func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
 	}
 
 	for _, evictedPod := range evictedPods.Items {
-		if evictedPod.Status.Reason == "Evicted" && evictedPod.GetNamespace() != "kube-system" && evictedPod.GetNamespace() != os.Getenv("DO_NOT_EVICTED_POD_NAMESPACE") {
+		if evictedPod.Status.Reason == "Evicted" && evictedPod.GetNamespace() != "kube-system" && evictedPod.GetNamespace() != os.Getenv("DO_NOT_EVICTED_POD_NAMESPACE") && evictedPod.GetNamespace() != os.Getenv("DO_NOT_EVICTED_POD_NAMESPACE_DEFAULT") {
 			wg.Add(1)
 			log.Info(fmt.Sprintf("Evicted Pod: %s", evictedPod.Name))
 			deletedPods = append(deletedPods, evictedPod.Name)
