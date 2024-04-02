@@ -3,6 +3,7 @@ package evictedpod
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func EvictedPods(clientSet *kubernetes.Clientset) error {
+func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
+	var deletedPods []string
 	var wg sync.WaitGroup
 
 	evictedPods, err := clientSet.CoreV1().Pods("").List(context.TODO(), v1.ListOptions{
@@ -21,18 +23,19 @@ func EvictedPods(clientSet *kubernetes.Clientset) error {
 	})
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, evictedPod := range evictedPods.Items {
-		if evictedPod.Status.Reason == "Evicted" && evictedPod.GetNamespace() != "kube-system" {
+		if evictedPod.Status.Reason == "Evicted" && evictedPod.GetNamespace() != "kube-system" && evictedPod.GetNamespace() != os.Getenv("DO_NOT_EVICTED_POD_NAMESPACE") {
 			wg.Add(1)
 			log.Info(fmt.Sprintf("Evicted Pod: %s", evictedPod.Name))
+			deletedPods = append(deletedPods, evictedPod.Name)
 			go deletePod(clientSet, evictedPod, &wg)
 		}
 	}
 	wg.Wait()
-	return nil
+	return deletedPods, nil
 }
 
 func deletePod(clientSet *kubernetes.Clientset, pod coreV1.Pod, wg *sync.WaitGroup) {
