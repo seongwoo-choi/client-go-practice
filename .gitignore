@@ -15,6 +15,6 @@ go.sum
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-cmd/checkingK8sResources/file.log
-cmd/checkingK8sResources/tmp
+cmd/file.log
+cmd/tmp
 .env

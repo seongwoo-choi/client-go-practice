@@ -100,11 +100,10 @@ func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 					}
 				}
 			} else {
-				log.Info("Something Wrong")
 				deploymentContainer.DeploymentName = deploymentNew.Name
 				deploymentContainer.Namespace = deploymentNew.Namespace
 				deploymentContainer.UpdatedTime = time.Now().UTC()
-				log.Info(deploymentContainer)
+				log.Error(deploymentContainer)
 
 				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
 			}

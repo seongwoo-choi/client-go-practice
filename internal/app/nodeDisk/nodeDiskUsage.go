@@ -11,6 +11,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/gofiber/fiber/v2/log"
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
@@ -24,12 +25,12 @@ type NodeDiskUsageType struct {
 func NodeDiskUsage(clientSet *kubernetes.Clientset, percentage string) ([]NodeDiskUsageType, error) {
 	var nodeDiskUsage []NodeDiskUsageType
 	query := fmt.Sprintf("(1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 > %s", percentage)
-
 	prometheusClient, err := api.NewClient(api.Config{
 		Address: os.Getenv("PROMETHEUS_ADDRESS"),
 	})
 
 	if err != nil {
+		log.Error(err)
 		return nil, err
 	}
 
@@ -39,6 +40,7 @@ func NodeDiskUsage(clientSet *kubernetes.Clientset, percentage string) ([]NodeDi
 
 	result, warnings, err := v1api.Query(ctx, query, time.Now(), v1.WithTimeout(5*time.Second))
 	if err != nil {
+		log.Error(err)
 		return nil, err
 	}
 	if len(warnings) > 0 {

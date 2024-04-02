@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/gofiber/fiber/v2/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -18,11 +16,13 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	var drainNodeNames []string
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
 	if err != nil {
+		log.Error(err)
 		return err
 	}
 
 	nodes, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
+		log.Error(err)
 		return err
 	}
 
@@ -50,17 +50,20 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	log.Info("Draining node " + nodeName + "...")
 	if err := cordenNode(clientSet, nodeName); err != nil {
+		log.Error(err)
 		return err
 	}
 
 	log.Info("Evicting pods in node " + nodeName + "...")
 	if err := evictedPod(clientSet, nodeName); err != nil {
+		log.Error(err)
 		return err
 	}
 
 	// 노드의 Instance ID 를 조회
 	instanceId, err := getNodeInstanceId(clientSet, nodeName)
 	if err != nil {
+		log.Error(err)
 		return err
 	}
 	if instanceId == "" {
@@ -70,6 +73,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	// 인스턴스 ID 로 EC2 인스턴스를 종료
 	log.Info("Terminating instance " + instanceId + "...")
 	if err := terminatingInstance(instanceId); err != nil {
+		log.Error(err)
 		return err
 	}
 
@@ -79,6 +83,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 func cordenNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
+		log.Error(err)
 		return err
 	}
 
@@ -105,13 +110,14 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 		select {
 		case <-ctx.Done():
 			// 타임아웃 발생 시
-			log.Info("Timeout reached while waiting for pods to be terminated in node", nodeName)
+			log.Error("Timeout reached while waiting for pods to be terminated in node", nodeName)
 			return fmt.Errorf("timeout reached while evicting pods from node %s", nodeName)
 		default:
 			pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 				FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase!=Succeeded,status.phase!=Failed", nodeName),
 			})
 			if err != nil {
+				log.Error(err)
 				return err
 			}
 
@@ -134,12 +140,13 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 // 인스턴스 ID 로 EC2 인스턴스를 종료
 func terminatingInstance(instanceId string) error {
 	// 인스턴스 종료 로직
-	sess := session.Must(session.NewSession())
-	svc := ec2.New(sess)
-	_, err := svc.TerminateInstances(&ec2.TerminateInstancesInput{
-		InstanceIds: []*string{&instanceId},
-	})
-	return err
+	// sess := session.Must(session.NewSession())
+	// svc := ec2.New(sess)
+	// _, err := svc.TerminateInstances(&ec2.TerminateInstancesInput{
+	// 	InstanceIds: []*string{&instanceId},
+	// })
+	// return err
+	return nil
 }
 
 func getNodeInstanceId(clientSet *kubernetes.Clientset, nodeName string) (string, error) {
