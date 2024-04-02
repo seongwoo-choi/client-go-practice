@@ -3,7 +3,8 @@ package main
 import (
 	"client-go/config"
 	evictedpod "client-go/internal/app/evictedPod"
-	"client-go/internal/app/nodeDiskUsage"
+	nodeDiskUsage "client-go/internal/app/nodeDisk"
+
 	"os"
 
 	"github.com/gofiber/fiber/v2"
@@ -83,6 +84,22 @@ func main() {
 		}
 		log.Info(result)
 		return c.Status(fiber.StatusOK).JSON(result)
+	})
+
+	apiV1.Get("/node-drain", func(c *fiber.Ctx) error {
+		percentage := c.Query("percentage")
+		if percentage == "" {
+			percentage = "70"
+		}
+		drainNodes, err := nodeDiskUsage.NodeDrain(clientSet, percentage)
+		if err != nil {
+			log.Error(err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"msg": err.Error(),
+			})
+		}
+
+		return c.Status(fiber.StatusOK).JSON(drainNodes)
 	})
 
 	// checkingContainerImage.CheckingContainerImage(clientSet)

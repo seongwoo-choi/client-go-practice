@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -51,6 +52,7 @@ func NodeDiskUsage(clientSet *kubernetes.Clientset, percentage string) ([]NodeDi
 
 	for _, sample := range vector {
 		nodeName := string(sample.Metric["instance"])
+		nodeName = nodeName[0:strings.Index(nodeName, ":")]
 		diskUsage, _ := strconv.ParseFloat(sample.Value.String(), 64)
 		nodeDiskUsage = append(nodeDiskUsage, NodeDiskUsageType{
 			NodeName:  nodeName,
