@@ -38,13 +38,13 @@ func NodeDiskUsage(clientSet *kubernetes.Clientset, percentage string) ([]NodeDi
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, warnings, err := v1api.Query(ctx, query, time.Now(), v1.WithTimeout(5*time.Second))
+	result, warnings, err := v1api.Query(ctx, query, time.Now(), v1.WithTimeout(30*time.Second))
 	if err != nil {
-		log.Error(err)
+		log.Error("Error querying Prometheus:", err)
 		return nil, err
 	}
 	if len(warnings) > 0 {
-		return nil, errors.New("warnings encountered during query")
+		log.Warn("Prometheus query warnings:", warnings)
 	}
 
 	vector, ok := result.(model.Vector)

@@ -45,6 +45,6 @@ func deletePod(clientSet *kubernetes.Clientset, pod coreV1.Pod, wg *sync.WaitGro
 		log.Error(err)
 		fmt.Printf("Error deleting pod %s: %s\n", pod.Name, err.Error())
 	}
-	time.Sleep(time.Millisecond * 50)
+	time.Sleep(time.Millisecond * 300)
 	wg.Done()
 }

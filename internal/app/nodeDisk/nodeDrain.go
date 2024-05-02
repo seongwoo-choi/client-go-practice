@@ -66,6 +66,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 		log.Error(err)
 		return err
 	}
+	log.Info("Instance ID: " + instanceId)
 	if instanceId == "" {
 		return fmt.Errorf("failed to get instance ID for node %s", nodeName)
 	}
