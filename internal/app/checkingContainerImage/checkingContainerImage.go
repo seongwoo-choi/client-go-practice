@@ -3,7 +3,7 @@ package checkingContainerImage
 import (
 	"time"
 
-	"github.com/gofiber/fiber/v3/log"
+	log "github.com/sirupsen/logrus" // Updated to use Logrus for better logging capabilities
 	appV1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -18,99 +18,76 @@ type DeploymentContainer struct {
 	UpdatedTime           time.Time
 }
 
-func addContainerImage(deploymentA *appV1.Deployment, deploymentB *appV1.Deployment, ca map[string]string) map[string]string {
-	for i := 0; i < len(deploymentB.Spec.Template.Spec.Containers); i++ {
-		c := deploymentB.Spec.Template.Spec.Containers[i].Image
+// findNewContainers identifies new containers in the new deployment not present in the old deployment
+func findNewContainers(oldDep, newDep *appV1.Deployment) map[string]string {
+	newImages := make(map[string]string)
+	for _, newContainer := range newDep.Spec.Template.Spec.Containers {
 		found := false
-
-		for j := 0; j < len(deploymentA.Spec.Template.Spec.Containers); j++ {
-			if c == deploymentA.Spec.Template.Spec.Containers[j].Image {
+		for _, oldContainer := range oldDep.Spec.Template.Spec.Containers {
+			if newContainer.Image == oldContainer.Image {
 				found = true
 				break
 			}
 		}
-
 		if !found {
-			ca[c] = c
+			newImages[newContainer.Image] = newContainer.Image
 		}
 	}
-
-	return ca
+	return newImages
 }
 
+// handleDeploymentUpdate handles different scenarios when a deployment is updated
+func handleDeploymentUpdate(oldObj, newObj interface{}) {
+	oldDep, _ := oldObj.(*appV1.Deployment)
+	newDep, _ := newObj.(*appV1.Deployment)
+
+	newContainerCount := len(newDep.Spec.Template.Spec.Containers)
+	oldContainerCount := len(oldDep.Spec.Template.Spec.Containers)
+
+	containerUpdate := DeploymentContainer{
+		DeploymentName: newDep.Name,
+		Namespace:      newDep.Namespace,
+		UpdatedTime:    time.Now().UTC(),
+	}
+
+	switch {
+	case newContainerCount > oldContainerCount:
+		log.Infof("%s Deployment Container Added", newDep.Name)
+		changedImages := findNewContainers(oldDep, newDep)
+		for _, image := range changedImages {
+			log.Infof("Added Container Image: %s", image)
+		}
+	case newContainerCount < oldContainerCount:
+		log.Infof("%s Deployment Container Deleted", oldDep.Name)
+		changedImages := findNewContainers(newDep, oldDep)
+		for _, image := range changedImages {
+			log.Infof("Deleted Container Image: %s", image)
+		}
+	case newContainerCount == oldContainerCount:
+		for i := range newDep.Spec.Template.Spec.Containers {
+			if newDep.Spec.Template.Spec.Containers[i].Image != oldDep.Spec.Template.Spec.Containers[i].Image {
+				containerUpdate.OldContainerImageName = oldDep.Spec.Template.Spec.Containers[i].Image
+				containerUpdate.NewContainerImageName = newDep.Spec.Template.Spec.Containers[i].Image
+				log.Infof("Container Image Updated: %s to %s in Deployment %s", containerUpdate.OldContainerImageName, containerUpdate.NewContainerImageName, containerUpdate.DeploymentName)
+			}
+		}
+	}
+}
+
+// CheckingContainerImage sets up an informer to monitor deployment changes
 func CheckingContainerImage(clientSet *kubernetes.Clientset) {
-	var deploymentContainer DeploymentContainer
 	factory := informers.NewSharedInformerFactory(clientSet, time.Second*30)
-	Informer := factory.Apps().V1().Deployments().Informer()
+	informer := factory.Apps().V1().Deployments().Informer()
 
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 
-	Informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			deploymentOld, _ := oldObj.(*appV1.Deployment)
-			deploymentNew, _ := newObj.(*appV1.Deployment)
-			deploymentNewContainerLength := len(deploymentNew.Spec.Template.Spec.Containers)
-			deploymentOldContainerLength := len(deploymentOld.Spec.Template.Spec.Containers)
-			ca := map[string]string{}
-
-			// 컨테이너 삭제 시 deploymentNew 의 컨테이너 갯수가 deploymentOld 보다 적다.
-			// 컨테이너 추가 시 deploymentNew 의 컨테이너 갯수가 deploymentOld 보다 많다.
-			// 만약 deploymentOld 와 deploymentNew 의 container 갯수가 다르면 새롭게 추가된 container 이므로 해당 container 의 정보를 출력한다.
-			if deploymentNewContainerLength > deploymentOldContainerLength {
-				// 컨테이너 추가 시
-				log.Info("%s Deployment Container Added\n", deploymentNew.Name)
-
-				addContainerImage(deploymentOld, deploymentNew, ca)
-				deploymentContainer.DeploymentName = deploymentNew.Name
-				deploymentContainer.Namespace = deploymentNew.Namespace
-				deploymentContainer.UpdatedTime = time.Now().UTC()
-				log.Info(deploymentContainer)
-
-				for _, v := range ca {
-					log.Info("Added Container Name: " + v)
-				}
-
-				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
-			} else if deploymentNewContainerLength < deploymentOldContainerLength {
-				// 컨테이너 삭제 시
-				log.Info("%s Deployment Container Deleted\n", deploymentOld.Name)
-
-				addContainerImage(deploymentNew, deploymentOld, ca)
-				deploymentContainer.DeploymentName = deploymentOld.Name
-				deploymentContainer.Namespace = deploymentOld.Namespace
-				deploymentContainer.UpdatedTime = time.Now().UTC()
-				log.Info(deploymentContainer)
-
-				for _, v := range ca {
-					log.Info("Deleted Container Name: " + v)
-				}
-				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
-
-			} else if deploymentNewContainerLength == deploymentOldContainerLength {
-				for i := 0; i < deploymentNewContainerLength; i++ {
-					if deploymentOld.Spec.Template.Spec.Containers[i].Image != deploymentNew.Spec.Template.Spec.Containers[i].Image {
-						deploymentContainer.DeploymentName = deploymentNew.Name
-						deploymentContainer.OldContainerImageName = deploymentOld.Spec.Template.Spec.Containers[i].Image
-						deploymentContainer.NewContainerImageName = deploymentNew.Spec.Template.Spec.Containers[i].Image
-						deploymentContainer.Namespace = deploymentNew.Namespace
-						deploymentContainer.UpdatedTime = time.Now().UTC()
-						log.Info(deploymentContainer)
-						// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
-					}
-				}
-			} else {
-				deploymentContainer.DeploymentName = deploymentNew.Name
-				deploymentContainer.Namespace = deploymentNew.Namespace
-				deploymentContainer.UpdatedTime = time.Now().UTC()
-				log.Error(deploymentContainer)
-
-				// datadog metric 으로 전송(prism2 api 호출) or slack 으로 전송
-			}
-		},
+	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: handleDeploymentUpdate,
 	})
 
-	go Informer.Run(stopCh)
+	go informer.Run(stopCh)
 
-	select {}
+	// Block this goroutine indefinitely
+	<-stopCh
 }
