@@ -63,9 +63,11 @@ func formatChanges(oldDep, newDep *appV1.Deployment) string {
 	if oldDep.Name != newDep.Name {
 		changes = append(changes, fmt.Sprintf("- Name changed from `%s` to `%s`", oldDep.Name, newDep.Name))
 	}
+	// oldDep 와 newDep 객체가 동등한지 체크
 	if !reflect.DeepEqual(oldDep.Spec.Template.Spec.Containers, newDep.Spec.Template.Spec.Containers) {
 		changes = append(changes, "- Container specs have changed:")
 		changes = append(changes, detectContainerChanges(oldDep.Spec.Template.Spec.Containers, newDep.Spec.Template.Spec.Containers)...)
+		//changes = append(changes, detectDetailedChanges(oldDep, newDep)...)
 	}
 	labelChanges := detectLabelChanges(oldDep.Labels, newDep.Labels)
 	if len(labelChanges) > 0 {
@@ -74,6 +76,37 @@ func formatChanges(oldDep, newDep *appV1.Deployment) string {
 	}
 	return strings.Join(changes, "\n")
 }
+
+//func detectDetailedChanges(oldDep, newDep *appV1.Deployment) []string {
+//	var changes []string
+//
+//	// 컨테이너 수 비교
+//	if len(oldDep.Spec.Template.Spec.Containers) != len(newDep.Spec.Template.Spec.Containers) {
+//		changes = append(changes, fmt.Sprintf("Number of containers changed from `%d` to `%d`",
+//			len(oldDep.Spec.Template.Spec.Containers), len(newDep.Spec.Template.Spec.Containers)))
+//	}
+//
+//	// 컨테이너별 세부 비교
+//	for i, oldContainer := range oldDep.Spec.Template.Spec.Containers {
+//		if i >= len(newDep.Spec.Template.Spec.Containers) {
+//			continue
+//		}
+//		newContainer := newDep.Spec.Template.Spec.Containers[i]
+//
+//		if oldContainer.Image != newContainer.Image {
+//			changes = append(changes, fmt.Sprintf("Container `%s` image changed from `%s` to `%s`",
+//				oldContainer.Name, oldContainer.Image, newContainer.Image))
+//		}
+//
+//		if !reflect.DeepEqual(oldContainer.Resources, newContainer.Resources) {
+//			changes = append(changes, fmt.Sprintf("Resources for container `%s` changed", oldContainer.Name))
+//		}
+//
+//		// 다른 필드들도 비슷하게 추가 가능
+//	}
+//
+//	return changes
+//}
 
 func detectContainerChanges(oldContainers, newContainers []coreV1.Container) []string {
 	var changes []string
