@@ -24,7 +24,7 @@ func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
 	deletedPods := make([]string, 0, len(evictedPods))
 
 	// Rate limiting setup
-	rateLimiter := time.Tick(time.Second * 1) // 1 second between deletions
+	rateLimiter := time.Tick(time.Millisecond * 300) // 300ms
 
 	for _, pod := range evictedPods {
 		<-rateLimiter // Wait for the next tick
