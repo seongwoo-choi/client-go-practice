@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2/log"
+	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -16,13 +16,13 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	var drainNodeNames []string
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
 	if err != nil {
-		log.Error(err)
+		log.WithError(err).Error("Failed to get node disk usage")
 		return err
 	}
 
 	nodes, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		log.Error(err)
+		log.WithError(err).Error("Failed to list nodes")
 		return err
 	}
 
@@ -39,31 +39,31 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	for _, nodeName := range drainNodeNames {
 		if err := drainSingleNode(clientSet, nodeName); err != nil {
 			// 오류 로깅 후 다음 노드로 넘어감. 타임아웃 오류도 여기서 처리됨.
-			log.Error("Error draining node " + nodeName + ": " + err.Error())
+			log.WithError(err).Error("Failed to drain node " + nodeName)
 		}
 	}
 
 	return nil
 }
 
-// drainSingleNode 함수는 하나의 노드에 대해 코르돈 및 파드 종료 작업을 수행
+// drainSingleNode 함수는 하나의 노드에 대해 cordon 및 파드 종료 작업을 수행
 func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	log.Info("Draining node " + nodeName + "...")
-	if err := cordenNode(clientSet, nodeName); err != nil {
-		log.Error(err)
+	if err := cordonNode(clientSet, nodeName); err != nil {
+		log.WithError(err).Error("Failed to cordon node " + nodeName)
 		return err
 	}
 
 	log.Info("Evicting pods in node " + nodeName + "...")
 	if err := evictedPod(clientSet, nodeName); err != nil {
-		log.Error(err)
+		log.WithError(err).Error("Failed to evict pods in node " + nodeName)
 		return err
 	}
 
 	// 노드의 Instance ID 를 조회
 	instanceId, err := getNodeInstanceId(clientSet, nodeName)
 	if err != nil {
-		log.Error(err)
+		log.WithError(err).Error("Failed to get node instance id")
 		return err
 	}
 	log.Info("Instance ID: " + instanceId)
@@ -73,18 +73,18 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 
 	// 인스턴스 ID 로 EC2 인스턴스를 종료
 	log.Info("Terminating instance " + instanceId + "...")
-	if err := terminatingInstance(instanceId); err != nil {
-		log.Error(err)
+	if err := terminateInstance(instanceId); err != nil {
+		log.WithError(err).Error("Failed to terminate instance " + instanceId)
 		return err
 	}
 
 	return nil
 }
 
-func cordenNode(clientSet *kubernetes.Clientset, nodeName string) error {
+func cordonNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		log.Error(err)
+		log.WithError(err).Error("Failed to get node")
 		return err
 	}
 
@@ -93,7 +93,7 @@ func cordenNode(clientSet *kubernetes.Clientset, nodeName string) error {
 		return nil
 	}
 
-	log.Info("Corden node", nodeName)
+	log.Info("cordon node", nodeName)
 	node.Spec.Unschedulable = true
 	_, err = clientSet.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
 	return err
@@ -118,7 +118,7 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 				FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase!=Succeeded,status.phase!=Failed", nodeName),
 			})
 			if err != nil {
-				log.Error(err)
+				log.WithError(err).Error("Failed to list pods")
 				return err
 			}
 
@@ -128,8 +128,8 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 				return nil
 			}
 
-			// 파드 삭제 로직
-			// 예: clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+			// 파드 삭제 로직 추가
+			// clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 			log.Info("Deleted Pod Name: ", pods.Items[0].Name)
 
 			log.Info("Waiting for pods to be terminated...")
@@ -139,7 +139,7 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 }
 
 // 인스턴스 ID 로 EC2 인스턴스를 종료
-func terminatingInstance(instanceId string) error {
+func terminateInstance(instanceId string) error {
 	// 인스턴스 종료 로직
 	// sess := session.Must(session.NewSession())
 	// svc := ec2.New(sess)
