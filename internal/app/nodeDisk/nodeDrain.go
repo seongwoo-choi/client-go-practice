@@ -12,6 +12,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// node 무한 루프 => pdb 있는 deployment 댓수 강제 증가 + keda desired 변경 => replicas
+// pdb 무력화했다가 다시 실행하도록 하는 방법..label 변경하는 방법
+// 순단 나도 상관없으면 => kubelet 이 죽었다고 판단하게 할 수 있는 기능으로 사용..
+// 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
+
 func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	var drainNodeNames []string
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
@@ -111,14 +116,14 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 		select {
 		case <-ctx.Done():
 			// 타임아웃 발생 시
-			log.Error("Timeout reached while waiting for pods to be terminated in node", nodeName)
+			// 사람이 결정..? slack 남기던가 로그를 남기는 방식으로
+			// pod describe 사용해서 왜 타임아웃이 발생했는지 이벤트를 확인해야 된다.
 			return fmt.Errorf("timeout reached while evicting pods from node %s", nodeName)
 		default:
 			pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 				FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase!=Succeeded,status.phase!=Failed", nodeName),
 			})
 			if err != nil {
-				log.WithError(err).Error("Failed to list pods")
 				return err
 			}
 
