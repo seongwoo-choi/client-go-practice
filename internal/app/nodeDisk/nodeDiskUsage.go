@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/client-go/kubernetes"
-
-	"github.com/gofiber/fiber/v2/log"
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
+	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/kubernetes"
 )
 
 type NodeDiskUsageType struct {
@@ -23,44 +22,66 @@ type NodeDiskUsageType struct {
 }
 
 func NodeDiskUsage(clientSet *kubernetes.Clientset, percentage string) ([]NodeDiskUsageType, error) {
-	var nodeDiskUsage []NodeDiskUsageType
 	query := fmt.Sprintf("(1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 > %s", percentage)
-	prometheusClient, err := api.NewClient(api.Config{
-		Address: os.Getenv("PROMETHEUS_ADDRESS"),
-	})
 
+	prometheusClient, err := createPrometheusClient()
 	if err != nil {
-		log.Error(err)
+		logrus.WithError(err).Error("Failed to create Prometheus client")
 		return nil, err
 	}
 
-	v1api := v1.NewAPI(prometheusClient)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	result, err := queryPrometheus(prometheusClient, query)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to query Prometheus")
+		return nil, err
+	}
+
+	return parseResult(result), nil
+}
+
+func createPrometheusClient() (api.Client, error) {
+	config := api.Config{
+		Address: os.Getenv("PROMETHEUS_ADDRESS"),
+	}
+	return api.NewClient(config)
+}
+
+func queryPrometheus(client api.Client, query string) (model.Vector, error) {
+	v1api := v1.NewAPI(client)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, warnings, err := v1api.Query(ctx, query, time.Now(), v1.WithTimeout(30*time.Second))
+	result, warnings, err := v1api.Query(ctx, query, time.Now())
 	if err != nil {
-		log.Error("Error querying Prometheus:", err)
 		return nil, err
 	}
 	if len(warnings) > 0 {
-		log.Warn("Prometheus query warnings:", warnings)
+		logrus.Warn("Prometheus query warnings: ", warnings)
 	}
 
 	vector, ok := result.(model.Vector)
 	if !ok {
-		return nil, errors.New("unexpected result type")
+		return nil, errors.New("unexpected result type from Prometheus")
 	}
 
+	return vector, nil
+}
+
+func parseResult(vector model.Vector) []NodeDiskUsageType {
+	var nodeDiskUsage []NodeDiskUsageType
 	for _, sample := range vector {
-		nodeName := string(sample.Metric["instance"])
-		nodeName = nodeName[0:strings.Index(nodeName, ":")]
-		diskUsage, _ := strconv.ParseFloat(sample.Value.String(), 64)
+		nodeName, diskUsage := extractNodeDiskUsage(sample)
 		nodeDiskUsage = append(nodeDiskUsage, NodeDiskUsageType{
 			NodeName:  nodeName,
 			DiskUsage: diskUsage,
 		})
 	}
+	return nodeDiskUsage
+}
 
-	return nodeDiskUsage, nil
+func extractNodeDiskUsage(sample *model.Sample) (string, float64) {
+	nodeName := string(sample.Metric["instance"])
+	nodeName = nodeName[0:strings.Index(nodeName, ":")]
+	diskUsage, _ := strconv.ParseFloat(sample.Value.String(), 64)
+	return nodeName, diskUsage
 }
