@@ -2,14 +2,17 @@ package checkingContainerImage
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
+	"strings"
 	"time"
 
-	"encoding/json"
-	log "github.com/sirupsen/logrus" // Updated to use Logrus for better logging capabilities
+	log "github.com/sirupsen/logrus"
 	appV1 "k8s.io/api/apps/v1"
+	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -25,7 +28,18 @@ type DeploymentContainer struct {
 
 func sendSlackNotification(message string) error {
 	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
-	payload := map[string]string{"text": message}
+	payload := map[string]interface{}{
+		"text": "Deployment Update Notification",
+		"blocks": []map[string]interface{}{
+			{
+				"type": "section",
+				"text": map[string]string{
+					"type": "mrkdwn",
+					"text": message,
+				},
+			},
+		},
+	}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -44,73 +58,73 @@ func sendSlackNotification(message string) error {
 	return nil
 }
 
-// findNewContainers identifies new containers in the new deployment not present in the old deployment
-func findNewContainers(oldDep, newDep *appV1.Deployment) map[string]string {
-	newImages := make(map[string]string)
-	for _, newContainer := range newDep.Spec.Template.Spec.Containers {
-		found := false
-		for _, oldContainer := range oldDep.Spec.Template.Spec.Containers {
-			if newContainer.Image == oldContainer.Image {
-				found = true
-				break
-			}
-		}
-		if !found {
-			newImages[newContainer.Image] = newContainer.Image
-		}
+func formatChanges(oldDep, newDep *appV1.Deployment) string {
+	var changes []string
+	if oldDep.Name != newDep.Name {
+		changes = append(changes, fmt.Sprintf("- Name changed from `%s` to `%s`", oldDep.Name, newDep.Name))
 	}
-	return newImages
+	if !reflect.DeepEqual(oldDep.Spec.Template.Spec.Containers, newDep.Spec.Template.Spec.Containers) {
+		changes = append(changes, "- Container specs have changed:")
+		changes = append(changes, detectContainerChanges(oldDep.Spec.Template.Spec.Containers, newDep.Spec.Template.Spec.Containers)...)
+	}
+	labelChanges := detectLabelChanges(oldDep.Labels, newDep.Labels)
+	if len(labelChanges) > 0 {
+		changes = append(changes, "- Label changes:")
+		changes = append(changes, labelChanges...)
+	}
+	return strings.Join(changes, "\n")
 }
 
-// handleDeploymentUpdate handles different scenarios when a deployment is updated
+func detectContainerChanges(oldContainers, newContainers []coreV1.Container) []string {
+	var changes []string
+	for i, newContainer := range newContainers {
+		if i < len(oldContainers) {
+			oldContainer := oldContainers[i]
+			if oldContainer.Image != newContainer.Image {
+				changes = append(changes, fmt.Sprintf("    - Image changed from `%s` to `%s`", oldContainer.Image, newContainer.Image))
+			}
+			if !reflect.DeepEqual(oldContainer.Resources, newContainer.Resources) {
+				changes = append(changes, fmt.Sprintf("    - Resources changed for container `%s`", newContainer.Name))
+			}
+		} else {
+			changes = append(changes, fmt.Sprintf("    - New container added: `%s`", newContainer.Name))
+		}
+	}
+	return changes
+}
+
+func detectLabelChanges(oldLabels, newLabels map[string]string) []string {
+	var changes []string
+	// 새로 추가된 레이블 검사
+	for key, newVal := range newLabels {
+		if oldVal, ok := oldLabels[key]; !ok {
+			changes = append(changes, fmt.Sprintf("    - New label added: `%s=%s`", key, newVal))
+		} else if newVal != oldVal {
+			changes = append(changes, fmt.Sprintf("    - Label `%s` changed from `%s` to `%s`", key, oldVal, newVal))
+		}
+	}
+	// 삭제된 레이블 검사
+	for key, oldVal := range oldLabels {
+		if _, ok := newLabels[key]; !ok {
+			changes = append(changes, fmt.Sprintf("    - Label `%s=%s` removed", key, oldVal))
+		}
+	}
+	return changes
+}
+
 func handleDeploymentUpdate(oldObj, newObj interface{}) {
 	oldDep, _ := oldObj.(*appV1.Deployment)
 	newDep, _ := newObj.(*appV1.Deployment)
 
-	newContainerCount := len(newDep.Spec.Template.Spec.Containers)
-	oldContainerCount := len(oldDep.Spec.Template.Spec.Containers)
-
-	containerUpdate := DeploymentContainer{
-		DeploymentName: newDep.Name,
-		Namespace:      newDep.Namespace,
-		UpdatedTime:    time.Now().UTC(),
-	}
-
-	var message string
-	switch {
-	case newContainerCount > oldContainerCount:
-		log.Infof("%s Deployment Container Added", newDep.Name)
-		changedImages := findNewContainers(oldDep, newDep)
-		for _, image := range changedImages {
-			log.Infof("Added Container Image: %s", image)
-			message += fmt.Sprintf("Added Container Image: %s\n", image)
-		}
-	case newContainerCount < oldContainerCount:
-		log.Infof("%s Deployment Container Deleted", oldDep.Name)
-		changedImages := findNewContainers(newDep, oldDep)
-		for _, image := range changedImages {
-			log.Infof("Deleted Container Image: %s", image)
-			message += fmt.Sprintf("Deleted Container Image: %s\n", image)
-		}
-	case newContainerCount == oldContainerCount:
-		for i := range newDep.Spec.Template.Spec.Containers {
-			if newDep.Spec.Template.Spec.Containers[i].Image != oldDep.Spec.Template.Spec.Containers[i].Image {
-				containerUpdate.OldContainerImageName = oldDep.Spec.Template.Spec.Containers[i].Image
-				containerUpdate.NewContainerImageName = newDep.Spec.Template.Spec.Containers[i].Image
-				log.Infof("Container Image Updated: %s to %s in Deployment %s", containerUpdate.OldContainerImageName, containerUpdate.NewContainerImageName, containerUpdate.DeploymentName)
-				message += fmt.Sprintf("Container Image Updated: %s to %s in Deployment %s", containerUpdate.OldContainerImageName, containerUpdate.NewContainerImageName, containerUpdate.DeploymentName)
-			}
-		}
-	}
-
+	message := formatChanges(oldDep, newDep)
 	if message != "" {
+		message = fmt.Sprintf("*Updated Deployment:* `%s`\n%s", newDep.Name, message)
 		if err := sendSlackNotification(message); err != nil {
 			log.WithError(err).Error("Failed to send Slack notification")
 		}
 	}
 }
 
-// CheckingContainerImage sets up an informer to monitor deployment changes
 func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 	factory := informers.NewSharedInformerFactory(clientSet, time.Second*30)
 	informer := factory.Apps().V1().Deployments().Informer()
@@ -123,7 +137,5 @@ func CheckingContainerImage(clientSet *kubernetes.Clientset) {
 	})
 
 	go informer.Run(stopCh)
-
-	// Block this goroutine indefinitely
 	<-stopCh
 }
