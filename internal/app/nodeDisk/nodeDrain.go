@@ -106,7 +106,7 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 	log.Info("Listing pods in node", nodeName)
 
 	// todo: 적절한 타임아웃 설정 필요(노드에서 파드 삭제할 때)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
 	for {
@@ -124,18 +124,23 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 				return err
 			}
 
+			// 모든 파드가 종료되었는지 확인
 			if len(pods.Items) == 0 {
-				// 모든 파드가 종료되었습니다.
 				log.Info("All pods in node", nodeName, "have been successfully evicted.")
 				return nil
 			}
 
-			// todo:파드 삭제 로직 추가
-			// clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Items[0].Name, metav1.DeleteOptions{})
-			log.Info("Deleted Pod Name: ", pods.Items[0].Name)
+			for _, pod := range pods.Items {
+				if pod.Spec.TerminationGracePeriodSeconds == nil || *pod.Spec.TerminationGracePeriodSeconds > 0 {
+					log.Infof("Deleting pod %s from node %s", pod.Name, nodeName)
+					if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil {
+						return err
+					}
+				}
+			}
 
 			log.Info("Waiting for pods to be terminated...")
-			time.Sleep(10 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
 	}
 }
