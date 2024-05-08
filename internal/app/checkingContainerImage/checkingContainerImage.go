@@ -1,8 +1,13 @@
 package checkingContainerImage
 
 import (
+	"bytes"
+	"fmt"
+	"net/http"
+	"os"
 	"time"
 
+	"encoding/json"
 	log "github.com/sirupsen/logrus" // Updated to use Logrus for better logging capabilities
 	appV1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
@@ -16,6 +21,27 @@ type DeploymentContainer struct {
 	NewContainerImageName string
 	Namespace             string
 	UpdatedTime           time.Time
+}
+
+func sendSlackNotification(message string) error {
+	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+	payload := map[string]string{"text": message}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("slack notification returned status code %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // findNewContainers identifies new containers in the new deployment not present in the old deployment
@@ -50,18 +76,21 @@ func handleDeploymentUpdate(oldObj, newObj interface{}) {
 		UpdatedTime:    time.Now().UTC(),
 	}
 
+	var message string
 	switch {
 	case newContainerCount > oldContainerCount:
 		log.Infof("%s Deployment Container Added", newDep.Name)
 		changedImages := findNewContainers(oldDep, newDep)
 		for _, image := range changedImages {
 			log.Infof("Added Container Image: %s", image)
+			message += fmt.Sprintf("Added Container Image: %s\n", image)
 		}
 	case newContainerCount < oldContainerCount:
 		log.Infof("%s Deployment Container Deleted", oldDep.Name)
 		changedImages := findNewContainers(newDep, oldDep)
 		for _, image := range changedImages {
 			log.Infof("Deleted Container Image: %s", image)
+			message += fmt.Sprintf("Deleted Container Image: %s\n", image)
 		}
 	case newContainerCount == oldContainerCount:
 		for i := range newDep.Spec.Template.Spec.Containers {
@@ -69,7 +98,14 @@ func handleDeploymentUpdate(oldObj, newObj interface{}) {
 				containerUpdate.OldContainerImageName = oldDep.Spec.Template.Spec.Containers[i].Image
 				containerUpdate.NewContainerImageName = newDep.Spec.Template.Spec.Containers[i].Image
 				log.Infof("Container Image Updated: %s to %s in Deployment %s", containerUpdate.OldContainerImageName, containerUpdate.NewContainerImageName, containerUpdate.DeploymentName)
+				message += fmt.Sprintf("Container Image Updated: %s to %s in Deployment %s", containerUpdate.OldContainerImageName, containerUpdate.NewContainerImageName, containerUpdate.DeploymentName)
 			}
+		}
+	}
+
+	if message != "" {
+		if err := sendSlackNotification(message); err != nil {
+			log.WithError(err).Error("Failed to send Slack notification")
 		}
 	}
 }
