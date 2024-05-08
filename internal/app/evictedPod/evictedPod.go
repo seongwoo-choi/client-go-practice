@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	coreV1 "k8s.io/api/core/v1"
@@ -61,11 +62,14 @@ func deletePod(clientSet *kubernetes.Clientset, pod coreV1.Pod, wg *sync.WaitGro
 	if err != nil && !errors.IsNotFound(err) {
 		log.WithError(err).Error(fmt.Sprintf("Error deleting pod %s", pod.Name))
 	}
+	time.Sleep(time.Millisecond * 300)
 }
 
 // isPodDeletable checks if the pod is not in a protected namespace.
+// todo: Use ConfigMap
 func isPodDeletable(pod coreV1.Pod) bool {
 	// Retrieve protected namespaces from environment variables.
+	// todo: refactoring to use ConfigMap
 	protectedNamespaces := []string{
 		"kube-system",
 		os.Getenv("DO_NOT_EVICTED_POD_NAMESPACE"),
