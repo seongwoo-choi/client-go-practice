@@ -3,15 +3,14 @@ package evictedpod
 import (
 	"context"
 	"fmt"
-	"os"
-	"sync"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"os"
+	"sync"
+	"time"
 )
 
 func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
@@ -24,7 +23,11 @@ func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
 	var wg sync.WaitGroup
 	deletedPods := make([]string, 0, len(evictedPods))
 
+	// Rate limiting setup
+	rateLimiter := time.Tick(time.Second * 1) // 1 second between deletions
+
 	for _, pod := range evictedPods {
+		<-rateLimiter // Wait for the next tick
 		wg.Add(1)
 		deletedPods = append(deletedPods, pod.Name)
 		go deletePod(clientSet, pod, &wg)
@@ -59,13 +62,9 @@ func deletePod(clientSet *kubernetes.Clientset, pod coreV1.Pod, wg *sync.WaitGro
 	if err != nil && !errors.IsNotFound(err) {
 		log.WithError(err).Error(fmt.Sprintf("Error deleting pod %s", pod.Name))
 	}
-	time.Sleep(time.Millisecond * 300)
 }
 
-// todo: Use ConfigMap
 func isPodDeletable(pod coreV1.Pod) bool {
-	// Retrieve protected namespaces from environment variables.
-	// todo: refactoring to use ConfigMap
 	protectedNamespaces := []string{
 		"kube-system",
 		os.Getenv("DO_NOT_EVICTED_POD_NAMESPACE"),
