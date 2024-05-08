@@ -44,7 +44,7 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	for _, nodeName := range drainNodeNames {
 		if err := drainSingleNode(clientSet, nodeName); err != nil {
 			// 오류 로깅 후 다음 노드로 넘어감. 타임아웃 오류도 여기서 처리됨.
-			log.WithError(err).Error("Failed to drain node " + nodeName)
+			return err
 		}
 	}
 
@@ -55,20 +55,17 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	log.Info("Draining node " + nodeName + "...")
 	if err := cordonNode(clientSet, nodeName); err != nil {
-		log.WithError(err).Error("Failed to cordon node " + nodeName)
 		return err
 	}
 
 	log.Info("Evicting pods in node " + nodeName + "...")
 	if err := evictedPod(clientSet, nodeName); err != nil {
-		log.WithError(err).Error("Failed to evict pods in node " + nodeName)
 		return err
 	}
 
 	// 노드의 Instance ID 를 조회
 	instanceId, err := getNodeInstanceId(clientSet, nodeName)
 	if err != nil {
-		log.WithError(err).Error("Failed to get node instance id")
 		return err
 	}
 	log.Info("Instance ID: " + instanceId)
@@ -79,7 +76,6 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	// 인스턴스 ID 로 EC2 인스턴스를 종료
 	log.Info("Terminating instance " + instanceId + "...")
 	if err := terminateInstance(instanceId); err != nil {
-		log.WithError(err).Error("Failed to terminate instance " + instanceId)
 		return err
 	}
 
@@ -109,6 +105,7 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 	// 일단 위 과정을 생략하고 단순화하여 모든 파드를 조회
 	log.Info("Listing pods in node", nodeName)
 
+	// todo: 적절한 타임아웃 설정 필요(노드에서 파드 삭제할 때)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -133,8 +130,8 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 				return nil
 			}
 
-			// 파드 삭제 로직 추가
-			// clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+			// todo:파드 삭제 로직 추가
+			// clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Items[0].Name, metav1.DeleteOptions{})
 			log.Info("Deleted Pod Name: ", pods.Items[0].Name)
 
 			log.Info("Waiting for pods to be terminated...")
@@ -163,6 +160,7 @@ func getNodeInstanceId(clientSet *kubernetes.Clientset, nodeName string) (string
 
 	for _, addr := range node.Status.Addresses {
 		if addr.Type == "InternalIP" {
+			log.Info("Found internal IP: ", addr.Address)
 			return addr.Address, nil
 		}
 	}
