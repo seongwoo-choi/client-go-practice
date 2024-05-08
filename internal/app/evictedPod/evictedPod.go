@@ -14,7 +14,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// EvictedPods finds and deletes all evicted pods except those in protected namespaces.
 func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
 	evictedPods, err := listEvictedPods(clientSet)
 	if err != nil {
@@ -35,7 +34,6 @@ func EvictedPods(clientSet *kubernetes.Clientset) ([]string, error) {
 	return deletedPods, nil
 }
 
-// listEvictedPods lists all evicted pods that are not in protected namespaces.
 func listEvictedPods(clientSet *kubernetes.Clientset) ([]coreV1.Pod, error) {
 	evictedPods, err := clientSet.CoreV1().Pods("").List(context.TODO(), v1.ListOptions{
 		FieldSelector: "status.phase=Failed",
@@ -55,7 +53,6 @@ func listEvictedPods(clientSet *kubernetes.Clientset) ([]coreV1.Pod, error) {
 	return filteredPods, nil
 }
 
-// deletePod attempts to delete a given pod and logs any errors.
 func deletePod(clientSet *kubernetes.Clientset, pod coreV1.Pod, wg *sync.WaitGroup) {
 	defer wg.Done()
 	err := clientSet.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, v1.DeleteOptions{})
@@ -65,7 +62,6 @@ func deletePod(clientSet *kubernetes.Clientset, pod coreV1.Pod, wg *sync.WaitGro
 	time.Sleep(time.Millisecond * 300)
 }
 
-// isPodDeletable checks if the pod is not in a protected namespace.
 // todo: Use ConfigMap
 func isPodDeletable(pod coreV1.Pod) bool {
 	// Retrieve protected namespaces from environment variables.
