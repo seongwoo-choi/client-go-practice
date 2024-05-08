@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -26,13 +26,13 @@ func NodeDiskUsage(clientSet *kubernetes.Clientset, percentage string) ([]NodeDi
 
 	prometheusClient, err := createPrometheusClient()
 	if err != nil {
-		logrus.WithError(err).Error("Failed to create Prometheus client")
+		log.WithError(err).Error("Failed to create Prometheus client")
 		return nil, err
 	}
 
 	result, err := queryPrometheus(prometheusClient, query)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to query Prometheus")
+		log.WithError(err).Error("Failed to query Prometheus")
 		return nil, err
 	}
 
@@ -56,7 +56,7 @@ func queryPrometheus(client api.Client, query string) (model.Vector, error) {
 		return nil, err
 	}
 	if len(warnings) > 0 {
-		logrus.Warn("Prometheus query warnings: ", warnings)
+		log.Warn("Prometheus query warnings: ", warnings)
 	}
 
 	vector, ok := result.(model.Vector)
