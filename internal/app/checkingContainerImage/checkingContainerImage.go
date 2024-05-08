@@ -26,8 +26,7 @@ type DeploymentContainer struct {
 	UpdatedTime           time.Time
 }
 
-func sendSlackNotification(message string) error {
-	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
+func sendSlackNotification(message, slackWebhookURL string) error {
 	payload := map[string]interface{}{
 		"text": "Deployment Update Notification",
 		"blocks": []map[string]interface{}{
@@ -45,7 +44,7 @@ func sendSlackNotification(message string) error {
 		return err
 	}
 
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(jsonData))
+	resp, err := http.Post(slackWebhookURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
@@ -149,10 +148,11 @@ func handleDeploymentUpdate(oldObj, newObj interface{}) {
 	oldDep, _ := oldObj.(*appV1.Deployment)
 	newDep, _ := newObj.(*appV1.Deployment)
 
+	webhookURL := os.Getenv("SLACK_WEBHOOK_URL")
 	message := formatChanges(oldDep, newDep)
 	if message != "" {
 		message = fmt.Sprintf("*Updated Deployment:* `%s`\n%s", newDep.Name, message)
-		if err := sendSlackNotification(message); err != nil {
+		if err := sendSlackNotification(message, webhookURL); err != nil {
 			log.WithError(err).Error("Failed to send Slack notification")
 		}
 	}
