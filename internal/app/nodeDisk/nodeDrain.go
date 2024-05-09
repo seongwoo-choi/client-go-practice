@@ -3,6 +3,7 @@ package nodeDiskUsage
 import (
 	"context"
 	"fmt"
+	coreV1 "k8s.io/api/core/v1"
 	"os"
 	"strings"
 	"time"
@@ -101,48 +102,68 @@ func cordonNode(clientSet *kubernetes.Clientset, nodeName string) error {
 }
 
 func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
-	// 데몬셋, 스테이트풀셋, 시스템 파드를 제외한 모든 파드를 종료
-	// 일단 위 과정을 생략하고 단순화하여 모든 파드를 조회
 	log.Info("Listing pods in node", nodeName)
 
-	// todo: 적절한 타임아웃 설정 필요(노드에서 파드 삭제할 때)
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
+
+	// 삭제 가능한 파드의 수를 추적
+	var deletablePodCount int
 
 	for {
 		select {
 		case <-ctx.Done():
 			// 타임아웃 발생 시
-			// 사람이 결정..? slack 남기던가 로그를 남기는 방식으로
-			// pod describe 사용해서 왜 타임아웃이 발생했는지 이벤트를 확인해야 된다.
+			log.Error("Timeout reached while waiting for pods to be evicted from node", nodeName)
 			return fmt.Errorf("timeout reached while evicting pods from node %s", nodeName)
 		default:
 			pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 				FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase!=Succeeded,status.phase!=Failed", nodeName),
 			})
 			if err != nil {
+				log.WithError(err).Error("Failed to list pods for eviction")
 				return err
 			}
 
-			// 모든 파드가 종료되었는지 확인
-			if len(pods.Items) == 0 {
-				log.Info("All pods in node", nodeName, "have been successfully evicted.")
+			// 아래 반복문에서 관리되지 않는 파드들을 카운팅
+			deletablePodCount = 0
+			for _, pod := range pods.Items {
+				if !isManagedByDaemonSetOrStatefulSet(pod) {
+					deletablePodCount++
+				}
+			}
+
+			// 관리되지 않는 파드가 없다면 종료
+			if deletablePodCount == 0 {
+				log.Info("All eligible pods in node", nodeName, "have been successfully evicted.")
 				return nil
 			}
 
+			// 관리되지 않는 파드들에 대해서만 삭제를 시도
 			for _, pod := range pods.Items {
-				if pod.Spec.TerminationGracePeriodSeconds == nil || *pod.Spec.TerminationGracePeriodSeconds > 0 {
+				if !isManagedByDaemonSetOrStatefulSet(pod) {
 					log.Infof("Deleting pod %s from node %s", pod.Name, nodeName)
 					if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil {
+						log.WithError(err).Error("Failed to delete pod")
 						return err
 					}
 				}
 			}
 
-			log.Info("Waiting for pods to be terminated...")
+			log.Info("Waiting for eligible pods to be terminated...")
 			time.Sleep(2 * time.Second)
 		}
 	}
+}
+
+// isManagedByDaemonSetOrStatefulSet checks if the pod is managed by a DaemonSet or StatefulSet
+func isManagedByDaemonSetOrStatefulSet(pod coreV1.Pod) bool {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "DaemonSet" || ref.Kind == "StatefulSet" {
+			return true
+		}
+	}
+	return false
 }
 
 // 인스턴스 ID 로 EC2 인스턴스를 종료
