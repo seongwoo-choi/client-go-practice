@@ -18,3 +18,4 @@ go.sum
 cmd/file.log
 cmd/tmp
 .env
+cmd/.log

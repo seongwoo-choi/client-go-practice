@@ -20,6 +20,7 @@ import (
 // pdb 무력화했다가 다시 실행하도록 하는 방법..label 변경하는 방법
 // 순단 나도 상관없으면 => kubelet 이 죽었다고 판단하게 할 수 있는 기능으로 사용..
 // 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
+// GracePeriodSeconds 를 0 으로 설정하여 파드를 즉시 삭제하도록 요청할 수 있다.
 
 func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
