@@ -107,6 +107,9 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
+	gracePeriod := int64(10)
+	propagationPolicy := metav1.DeletePropagationOrphan // 파드 삭제 시 관련된 리소스를 삭제하지 않음
+
 	// 삭제 가능한 파드의 수를 추적
 	var deletablePodCount int
 
@@ -114,7 +117,6 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 		select {
 		case <-ctx.Done():
 			// 타임아웃 발생 시
-			log.Error("Timeout reached while waiting for pods to be evicted from node", nodeName)
 			return fmt.Errorf("timeout reached while evicting pods from node %s", nodeName)
 		default:
 			pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
@@ -143,9 +145,11 @@ func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
 			for _, pod := range pods.Items {
 				if !isManagedByDaemonSetOrStatefulSet(pod) {
 					log.Infof("Deleting pod %s from node %s", pod.Name, nodeName)
-					if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil {
-						log.WithError(err).Error("Failed to delete pod")
-						return err
+					if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
+						GracePeriodSeconds: &gracePeriod,
+						PropagationPolicy:  &propagationPolicy,
+					}); err != nil {
+						return fmt.Errorf("failed to delete pod %s from node %s", pod.Name, nodeName)
 					}
 				}
 			}
@@ -168,13 +172,25 @@ func isManagedByDaemonSetOrStatefulSet(pod coreV1.Pod) bool {
 
 // 인스턴스 ID 로 EC2 인스턴스를 종료
 func terminateInstance(instanceId string) error {
-	// 인스턴스 종료 로직
-	// sess := session.Must(session.NewSession())
-	// svc := ec2.New(sess)
-	// _, err := svc.TerminateInstances(&ec2.TerminateInstancesInput{
-	// 	InstanceIds: []*string{&instanceId},
-	// })
-	// return err
+	// ec2 인스턴스 종료 로직
+	//sess, err := session.NewSession(&aws.Config{
+	//	Region: aws.String("ap-northeast-2"),
+	//})
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//ec2Svc := ec2.New(sess)
+	//
+	//_, err = ec2Svc.TerminateInstances(&ec2.TerminateInstancesInput{
+	//	InstanceIds: []*string{aws.String(instanceId)},
+	//})
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//log.Info("Successfully terminated instance", instanceId)
+
 	return nil
 }
 
