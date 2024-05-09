@@ -1,4 +1,4 @@
-package checkingContainerImage
+package checking_deployment
 
 import (
 	"bytes"

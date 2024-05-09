@@ -2,9 +2,9 @@ package main
 
 import (
 	"client-go/config"
-	"client-go/internal/app/checkingContainerImage"
-	evictedpod "client-go/internal/app/evictedPod"
-	nodeDiskUsage "client-go/internal/app/nodeDisk"
+	"client-go/internal/app/checking_deployment"
+	evictedpod "client-go/internal/app/evicted_pod"
+	nodeDiskUsage "client-go/internal/app/node"
 
 	"os"
 
@@ -110,7 +110,7 @@ func main() {
 	apiV1.Get("/checking-container-image", func(c *fiber.Ctx) error {
 		// 고루틴을 사용하여 NodeDrain 함수를 비동기적으로 실행
 		go func() {
-			checkingContainerImage.CheckingContainerImage(clientSet)
+			checking_deployment.CheckingContainerImage(clientSet)
 		}()
 		return c.Status(fiber.StatusAccepted).SendString("Checking container image process started")
 	})

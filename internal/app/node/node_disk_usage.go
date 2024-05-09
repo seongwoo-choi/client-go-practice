@@ -1,4 +1,4 @@
-package nodeDiskUsage
+package node
 
 import (
 	"context"
