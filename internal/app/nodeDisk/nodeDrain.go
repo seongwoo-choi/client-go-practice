@@ -3,6 +3,9 @@ package nodeDiskUsage
 import (
 	"context"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	coreV1 "k8s.io/api/core/v1"
 	"os"
 	"strings"
@@ -19,7 +22,6 @@ import (
 // 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
 
 func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
-	var drainNodeNames []string
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
 	if err != nil {
 		log.WithError(err).Error("Failed to get node disk usage")
@@ -35,17 +37,11 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	for _, node := range nodes.Items {
 		for _, overNode := range overNodes {
 			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && node.Labels["karpenter.sh/provisioner-name"] == os.Getenv("DRAIN_NODE_LABELS") {
-				log.Info("Node Name: "+node.Name, ", Labels: ", node.Labels["karpenter.sh/provisioner-name"])
-				drainNodeNames = append(drainNodeNames, node.Name)
+				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", node.Labels["karpenter.sh/provisioner-name"])
+				if err := drainSingleNode(clientSet, node.Name); err != nil {
+					return fmt.Errorf("failed to drain node ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", node.Labels["karpenter.sh/provisioner-name"])
+				}
 			}
-		}
-	}
-
-	// 각 노드 별로 파드 종료 작업을 실행
-	for _, nodeName := range drainNodeNames {
-		if err := drainSingleNode(clientSet, nodeName); err != nil {
-			// 오류 로깅 후 다음 노드로 넘어감. 타임아웃 오류도 여기서 처리됨.
-			return err
 		}
 	}
 
@@ -59,8 +55,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 		return err
 	}
 
-	log.Info("Evicting pods in node " + nodeName + "...")
-	if err := evictedPod(clientSet, nodeName); err != nil {
+	if err := evictPods(clientSet, nodeName); err != nil {
 		return err
 	}
 
@@ -69,7 +64,6 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	if err != nil {
 		return err
 	}
-	log.Info("Instance ID: " + instanceId)
 	if instanceId == "" {
 		return fmt.Errorf("failed to get instance ID for node %s", nodeName)
 	}
@@ -92,75 +86,68 @@ func cordonNode(clientSet *kubernetes.Clientset, nodeName string) error {
 
 	// 이미 스케줄링 불가능 상태라면 스킵
 	if node.Spec.Unschedulable {
+		log.Info("Node ", nodeName, " is already unschedulable")
 		return nil
 	}
 
-	log.Info("cordon node", nodeName)
+	log.Info("Cordoning node ", nodeName)
 	node.Spec.Unschedulable = true
-	_, err = clientSet.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
-	return err
+	if _, err = clientSet.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func evictedPod(clientSet *kubernetes.Clientset, nodeName string) error {
-	log.Info("Listing pods in node", nodeName)
+func evictPods(clientSet *kubernetes.Clientset, nodeName string) error {
+	log.Info("Evicting pods in node ", nodeName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	gracePeriod := int64(10)
+	gracePeriod := int64(30)
 	propagationPolicy := metav1.DeletePropagationOrphan // 파드 삭제 시 관련된 리소스를 삭제하지 않음
 
-	// 삭제 가능한 파드의 수를 추적
-	var deletablePodCount int
-
 	for {
-		select {
-		case <-ctx.Done():
-			// 타임아웃 발생 시
-			return fmt.Errorf("timeout reached while evicting pods from node %s", nodeName)
-		default:
-			pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-				FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase!=Succeeded,status.phase!=Failed", nodeName),
-			})
-			if err != nil {
-				log.WithError(err).Error("Failed to list pods for eviction")
-				return err
-			}
-
-			// 아래 반복문에서 관리되지 않는 파드들을 카운팅
-			deletablePodCount = 0
-			for _, pod := range pods.Items {
-				if !isManagedByDaemonSetOrStatefulSet(pod) {
-					deletablePodCount++
-				}
-			}
-
-			// 관리되지 않는 파드가 없다면 종료
-			if deletablePodCount == 0 {
-				log.Info("All eligible pods in node", nodeName, "have been successfully evicted.")
-				return nil
-			}
-
-			// 관리되지 않는 파드들에 대해서만 삭제를 시도
-			for _, pod := range pods.Items {
-				if !isManagedByDaemonSetOrStatefulSet(pod) {
-					log.Infof("Deleting pod %s from node %s", pod.Name, nodeName)
-					if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
-						GracePeriodSeconds: &gracePeriod,
-						PropagationPolicy:  &propagationPolicy,
-					}); err != nil {
-						return fmt.Errorf("failed to delete pod %s from node %s", pod.Name, nodeName)
-					}
-				}
-			}
-
-			log.Info("Waiting for eligible pods to be terminated...")
-			time.Sleep(2 * time.Second)
+		pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+		})
+		if err != nil {
+			return err
 		}
+
+		// 삭제 가능한 파드의 수를 추적
+		deletablePodCount := 0
+		for _, pod := range pods.Items {
+			if !isManagedByDaemonSetOrStatefulSet(pod) {
+				deletablePodCount++
+			}
+		}
+
+		// 관리되지 않는 파드가 없다면 종료
+		if deletablePodCount == 0 {
+			log.Info("All eligible pods in node ", nodeName, " have been successfully evicted.")
+			return nil
+		}
+
+		// 관리되지 않는 파드들에 대해서만 삭제를 시도
+		for _, pod := range pods.Items {
+			if !isManagedByDaemonSetOrStatefulSet(pod) {
+				log.Infof("Deleting pod %s from node %s", pod.Name, nodeName)
+				if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
+					GracePeriodSeconds: &gracePeriod,
+					PropagationPolicy:  &propagationPolicy,
+				}); err != nil {
+					return fmt.Errorf("failed to delete pod %s from node %s", pod.Name, nodeName)
+				}
+			}
+		}
+
+		log.Info("Waiting for pods to be terminated...")
+		time.Sleep(2 * time.Second)
 	}
 }
 
-// isManagedByDaemonSetOrStatefulSet checks if the pod is managed by a DaemonSet or StatefulSet
 func isManagedByDaemonSetOrStatefulSet(pod coreV1.Pod) bool {
 	for _, ref := range pod.OwnerReferences {
 		if ref.Kind == "DaemonSet" || ref.Kind == "StatefulSet" {
@@ -173,24 +160,22 @@ func isManagedByDaemonSetOrStatefulSet(pod coreV1.Pod) bool {
 // 인스턴스 ID 로 EC2 인스턴스를 종료
 func terminateInstance(instanceId string) error {
 	// ec2 인스턴스 종료 로직
-	//sess, err := session.NewSession(&aws.Config{
-	//	Region: aws.String("ap-northeast-2"),
-	//})
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//ec2Svc := ec2.New(sess)
-	//
-	//_, err = ec2Svc.TerminateInstances(&ec2.TerminateInstancesInput{
-	//	InstanceIds: []*string{aws.String(instanceId)},
-	//})
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//log.Info("Successfully terminated instance", instanceId)
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("ap-northeast-2"),
+	})
+	if err != nil {
+		return err
+	}
 
+	ec2Svc := ec2.New(sess)
+	_, err = ec2Svc.TerminateInstances(&ec2.TerminateInstancesInput{
+		InstanceIds: []*string{aws.String(instanceId)},
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Info("Successfully terminated instance ", instanceId)
 	return nil
 }
 
@@ -202,7 +187,6 @@ func getNodeInstanceId(clientSet *kubernetes.Clientset, nodeName string) (string
 
 	for _, addr := range node.Status.Addresses {
 		if addr.Type == "InternalIP" {
-			log.Info("Found internal IP: ", addr.Address)
 			return addr.Address, nil
 		}
 	}
