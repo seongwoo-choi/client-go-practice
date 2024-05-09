@@ -105,37 +105,32 @@ func evictPods(clientSet *kubernetes.Clientset, nodeName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	gracePeriod := int64(30)
-	propagationPolicy := metav1.DeletePropagationOrphan // 파드 삭제 시 관련된 리소스를 삭제하지 않음
+	gracePeriod := int64(30) // 일반 삭제 시 유예 기간
+	immediate := int64(0)    // 강제 삭제 시 유예 기간
+	propagationPolicy := metav1.DeletePropagationOrphan
 
 	for {
 		pods, err := clientSet.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 			FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to list pods in node %s", nodeName)
 		}
 
-		// 삭제 가능한 파드의 수를 추적
-		deletablePodCount := 0
-		for _, pod := range pods.Items {
-			if !isManagedByDaemonSetOrStatefulSet(pod) {
-				deletablePodCount++
-			}
-		}
-
-		// 관리되지 않는 파드가 없다면 종료
-		if deletablePodCount == 0 {
-			log.Info("All eligible pods in node ", nodeName, " have been successfully evicted.")
+		if len(pods.Items) == 0 {
+			log.Info("All pods in node ", nodeName, " have been successfully evicted.")
 			return nil
 		}
 
-		// 관리되지 않는 파드들에 대해서만 삭제를 시도
 		for _, pod := range pods.Items {
 			if !isManagedByDaemonSetOrStatefulSet(pod) {
-				log.Infof("Deleting pod %s from node %s", pod.Name, nodeName)
+				grace := &gracePeriod
+				if shouldForceDelete(pod) {
+					grace = &immediate
+				}
+				log.Infof("Deleting pod %s from node %s with grace period of %d seconds", pod.Name, nodeName, *grace)
 				if err := clientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
-					GracePeriodSeconds: &gracePeriod,
+					GracePeriodSeconds: grace,
 					PropagationPolicy:  &propagationPolicy,
 				}); err != nil {
 					return fmt.Errorf("failed to delete pod %s from node %s", pod.Name, nodeName)
@@ -146,6 +141,16 @@ func evictPods(clientSet *kubernetes.Clientset, nodeName string) error {
 		log.Info("Waiting for pods to be terminated...")
 		time.Sleep(2 * time.Second)
 	}
+}
+
+func shouldForceDelete(pod coreV1.Pod) bool {
+	// pod 가 pdb 에 의해 막혔거나 KEDA 에 의해 제어되는지 확인
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == coreV1.PodScheduled && cond.Status == coreV1.ConditionFalse && cond.Reason == "Unschedulable" {
+			return true
+		}
+	}
+	return false
 }
 
 func isManagedByDaemonSetOrStatefulSet(pod coreV1.Pod) bool {
