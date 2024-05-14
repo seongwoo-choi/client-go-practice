@@ -19,3 +19,8 @@ cmd/file.log
 cmd/tmp
 .env
 cmd/.log
+cmd/cpu_requests.txt
+cmd/deployment_resources.csv
+.DS_Store
+.vscode
+.log
