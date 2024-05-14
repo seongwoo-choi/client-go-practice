@@ -23,7 +23,7 @@ import (
 // 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
 // GracePeriodSeconds 를 0 으로 설정하여 파드를 즉시 삭제하도록 요청할 수 있다.
 
-func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
+func NodeDrain(clientSet kubernetes.Interface, percentage string) error {
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
 	if err != nil {
 		log.WithError(err).Error("Failed to get node disk usage")
@@ -52,7 +52,7 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 }
 
 // drainSingleNode 함수는 하나의 노드에 대해 cordon 및 파드 종료 작업을 수행
-func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
+func drainSingleNode(clientSet kubernetes.Interface, nodeName string) error {
 	if err := cordonNode(clientSet, nodeName); err != nil {
 		return fmt.Errorf("failed to cordon node %s: %w", nodeName, err)
 	}
@@ -78,7 +78,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	return nil
 }
 
-func cordonNode(clientSet *kubernetes.Clientset, nodeName string) error {
+func cordonNode(clientSet kubernetes.Interface, nodeName string) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		log.WithError(err).Error("Failed to get node")
@@ -100,7 +100,7 @@ func cordonNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	return nil
 }
 
-func evictPods(clientSet *kubernetes.Clientset, nodeName string) error {
+func evictPods(clientSet kubernetes.Interface, nodeName string) error {
 	log.Info("Evicting pods in node ", nodeName)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
