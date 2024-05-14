@@ -7,7 +7,6 @@ toolchain go1.22.2
 require (
 	github.com/aws/aws-sdk-go v1.52.5
 	github.com/gofiber/fiber/v2 v2.52.4
-	github.com/golang/mock v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.19.0
 	github.com/prometheus/common v0.48.0
@@ -50,6 +49,7 @@ require (
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.52.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect

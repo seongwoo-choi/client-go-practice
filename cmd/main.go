@@ -5,6 +5,7 @@ import (
 	"client-go/internal/app/checking_deployment"
 	evictedpod "client-go/internal/app/evicted_pod"
 	nodeDiskUsage "client-go/internal/app/node"
+	"client-go/internal/app/pod_metadata"
 
 	"os"
 
@@ -113,6 +114,17 @@ func main() {
 			checking_deployment.CheckingContainerImage(clientSet)
 		}()
 		return c.Status(fiber.StatusAccepted).SendString("Checking container image process started")
+	})
+
+	apiV1.Get("/pod-metadata", func(c *fiber.Ctx) error {
+		err := pod_metadata.GetPodMetadata(clientSet)
+		if err != nil {
+			log.Error(err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"msg": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusAccepted).SendString("pod metadata")
 	})
 
 	log.Fatal(app.Listen(":3000"))
