@@ -3,11 +3,12 @@ package config
 import (
 	"flag"
 	"fmt"
+	"path/filepath"
+
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	clientCmd "k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	"path/filepath"
 )
 
 func GetKubeClientSet(kubeConfigFile string) (*kubernetes.Clientset, error) {
