@@ -23,7 +23,6 @@ import (
 // 순단 나도 상관없으면 => kubelet 이 죽었다고 판단하게 할 수 있는 기능으로 사용..
 // 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
 // GracePeriodSeconds 를 0 으로 설정하여 파드를 즉시 삭제하도록 요청할 수 있다.
-
 func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
 	overNodes, err := NodeDiskUsage(clientSet, percentage)
 	if err != nil {
@@ -173,27 +172,9 @@ func getNonCriticalPods(clientSet kubernetes.Interface, nodeName string) ([]core
 	}
 
 	var pods []coreV1.Pod
-	for _, pod := range podList.Items {
-		if !isManagedByDaemonSetOrStatefulSet(pod) {
-			if !isCriticalPod(pod) {
-				pods = append(pods, pod)
-			}
-		}
-	}
+	pods = append(pods, podList.Items...)
 
 	return pods, nil
-}
-
-func isCriticalPod(pod coreV1.Pod) bool {
-	if pod.Namespace == "kube-system" {
-		return true
-	}
-
-	if _, exists := pod.Annotations["scheduler.alpha.kubernetes.io/critical-pod"]; exists {
-		return true
-	}
-
-	return false
 }
 
 func shouldForceDelete(pod coreV1.Pod) bool {
@@ -206,18 +187,8 @@ func shouldForceDelete(pod coreV1.Pod) bool {
 	return false
 }
 
-func isManagedByDaemonSetOrStatefulSet(pod coreV1.Pod) bool {
-	for _, ref := range pod.OwnerReferences {
-		if ref.Kind == "DaemonSet" || ref.Kind == "StatefulSet" {
-			return true
-		}
-	}
-	return false
-}
-
 // 인스턴스 ID 로 EC2 인스턴스를 종료
 func terminateInstance(instanceId string) error {
-	// ec2 인스턴스 종료 로직
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("ap-northeast-2"),
 	})
