@@ -172,9 +172,22 @@ func getNonCriticalPods(clientSet kubernetes.Interface, nodeName string) ([]core
 	}
 
 	var pods []coreV1.Pod
-	pods = append(pods, podList.Items...)
+	for _, pod := range podList.Items {
+		if !isManagedByDaemonSet(pod) {
+			pods = append(pods, pod)
+		}
+	}
 
 	return pods, nil
+}
+
+func isManagedByDaemonSet(pod coreV1.Pod) bool {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldForceDelete(pod coreV1.Pod) bool {
