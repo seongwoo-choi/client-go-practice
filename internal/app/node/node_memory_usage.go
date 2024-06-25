@@ -10,12 +10,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type NodeMemoryUsageType struct {
+type nodeMemoryUsageType struct {
 	NodeName    string
 	MemoryUsage float64
 }
 
-func GetNodeMemoryUsage(clientSet kubernetes.Interface, percentage string) ([]NodeMemoryUsageType, error) {
+func GetNodeMemoryUsage(clientSet kubernetes.Interface, percentage string) ([]nodeMemoryUsageType, error) {
 	query := fmt.Sprintf("100 * (1 - (node_memory_MemFree_bytes + node_memory_Cached_bytes + node_memory_Buffers_bytes) / node_memory_MemTotal_bytes) <= %s", percentage)
 
 	prometheusClient, err := config.CreatePrometheusClient()
@@ -33,11 +33,11 @@ func GetNodeMemoryUsage(clientSet kubernetes.Interface, percentage string) ([]No
 	return parseMemoryResult(result), nil
 }
 
-func parseMemoryResult(vector model.Vector) []NodeMemoryUsageType {
-	var nodeMemoryUsage []NodeMemoryUsageType
+func parseMemoryResult(vector model.Vector) []nodeMemoryUsageType {
+	var nodeMemoryUsage []nodeMemoryUsageType
 	for _, sample := range vector {
 		nodeName, memoryUsage := extractMemoryUsage(sample)
-		nodeMemoryUsage = append(nodeMemoryUsage, NodeMemoryUsageType{
+		nodeMemoryUsage = append(nodeMemoryUsage, nodeMemoryUsageType{
 			NodeName:    nodeName,
 			MemoryUsage: memoryUsage,
 		})

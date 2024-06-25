@@ -9,12 +9,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type NodePodUsage struct {
+type nodePodCountType struct {
 	NodeName string
 	PodCount int
 }
 
-func GetNodePodUsageByLabel(clientSet *kubernetes.Clientset) ([]NodePodUsage, error) {
+func GetNodePodUsageByLabel(clientSet *kubernetes.Clientset) ([]nodePodCountType, error) {
 	labelSelector := fmt.Sprintf("karpenter.sh/provisioner-name=%s", os.Getenv("DRAIN_NODE_LABELS_1"))
 	nodes, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -23,7 +23,7 @@ func GetNodePodUsageByLabel(clientSet *kubernetes.Clientset) ([]NodePodUsage, er
 		return nil, err
 	}
 
-	var nodePodUsages []NodePodUsage
+	var nodePodUsages []nodePodCountType
 	for _, node := range nodes.Items {
 		pods, err := clientSet.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{
 			FieldSelector: "spec.nodeName=" + node.Name,
@@ -32,7 +32,7 @@ func GetNodePodUsageByLabel(clientSet *kubernetes.Clientset) ([]NodePodUsage, er
 			return nil, err
 		}
 
-		nodePodUsages = append(nodePodUsages, NodePodUsage{
+		nodePodUsages = append(nodePodUsages, nodePodCountType{
 			NodeName: node.Name,
 			PodCount: len(pods.Items),
 		})
