@@ -15,8 +15,7 @@ type NodeMemoryUsageType struct {
 	MemoryUsage float64
 }
 
-func GetNodeMemoryUsage(clientSet kubernetes.Interface) ([]NodeMemoryUsageType, error) {
-	percentage := "20"
+func GetNodeMemoryUsage(clientSet kubernetes.Interface, percentage string) ([]NodeMemoryUsageType, error) {
 	query := fmt.Sprintf("100 * (1 - (node_memory_MemFree_bytes + node_memory_Cached_bytes + node_memory_Buffers_bytes) / node_memory_MemTotal_bytes) <= %s", percentage)
 
 	prometheusClient, err := config.CreatePrometheusClient()

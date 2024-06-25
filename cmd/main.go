@@ -141,7 +141,11 @@ func main() {
 	})
 
 	apiV1.Get("/node-memory-usage", func(c *fiber.Ctx) error {
-		nodeMemoryUsage, err := node.GetNodeMemoryUsage(clientSet)
+		percentage := c.Query("percentage")
+		if percentage == "" {
+			percentage = "20"
+		}
+		nodeMemoryUsage, err := node.GetNodeMemoryUsage(clientSet, percentage)
 		if err != nil {
 			log.Error(err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
