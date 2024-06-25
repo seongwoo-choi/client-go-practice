@@ -127,7 +127,7 @@ func main() {
 		return c.Status(fiber.StatusAccepted).SendString("pod metadata")
 	})
 
-	apiV1.Get("/node-usage-pod", func(c *fiber.Ctx) error {
+	apiV1.Get("/node-pod-count", func(c *fiber.Ctx) error {
 		nodePodUsages, err := node.GetNodePodUsageByLabel(clientSet)
 		if err != nil {
 			log.Error(err)
@@ -135,8 +135,21 @@ func main() {
 				"msg": err.Error(),
 			})
 		}
-		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
 			"nodePodUsages": nodePodUsages,
+		})
+	})
+
+	apiV1.Get("/node-memory-usage", func(c *fiber.Ctx) error {
+		nodeMemoryUsage, err := node.GetNodeMemoryUsage(clientSet)
+		if err != nil {
+			log.Error(err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"msg": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"nodeMemoryUsage": nodeMemoryUsage,
 		})
 	})
 
