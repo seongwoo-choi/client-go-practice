@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"os"
+	"strings"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"os"
-	"strings"
 )
 
 func listDeployments(clientset *kubernetes.Clientset) ([]appsv1.Deployment, []string, error) {
