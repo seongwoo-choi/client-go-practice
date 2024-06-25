@@ -21,7 +21,7 @@ type NodeDiskUsageType struct {
 	DiskUsage float64
 }
 
-func NodeDiskUsage(clientSet kubernetes.Interface, percentage string) ([]NodeDiskUsageType, error) {
+func GetNodeDiskUsage(clientSet kubernetes.Interface, percentage string) ([]NodeDiskUsageType, error) {
 	query := fmt.Sprintf("(1 - node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 > %s", percentage)
 
 	prometheusClient, err := createPrometheusClient()
