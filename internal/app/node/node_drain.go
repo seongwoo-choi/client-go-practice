@@ -71,6 +71,8 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 		return fmt.Errorf("failed to wait for pods to terminate on node %s: %w", nodeName, err)
 	}
 
+	time.Sleep(2 * time.Minute)
+
 	log.Infof("Terminating instance %s for node %s", instanceId, nodeName)
 	if err := terminateInstance(instanceId); err != nil {
 		return fmt.Errorf("failed to terminate instance %s: %w", instanceId, err)
