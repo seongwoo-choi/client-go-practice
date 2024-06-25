@@ -4,7 +4,6 @@ import (
 	"client-go/config"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/prometheus/common/model"
 	log "github.com/sirupsen/logrus"
@@ -47,8 +46,7 @@ func parseResult(vector model.Vector) []NodeDiskUsageType {
 }
 
 func extractNodeDiskUsage(sample *model.Sample) (string, float64) {
-	nodeName := string(sample.Metric["instance"])
-	nodeName = nodeName[0:strings.Index(nodeName, ":")]
+	nodeName := string(sample.Metric["node"])
 	diskUsage, _ := strconv.ParseFloat(sample.Value.String(), 64)
 	return nodeName, diskUsage
 }
