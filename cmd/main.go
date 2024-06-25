@@ -4,7 +4,7 @@ import (
 	"client-go/config"
 	"client-go/internal/app/checking_deployment"
 	evictedpod "client-go/internal/app/evicted_pod"
-	nodeDiskUsage "client-go/internal/app/node"
+	"client-go/internal/app/node"
 	"client-go/internal/app/pod_metadata"
 
 	"os"
@@ -77,7 +77,7 @@ func main() {
 		if percentage == "" {
 			percentage = "70"
 		}
-		result, err := nodeDiskUsage.NodeDiskUsage(clientSet, percentage)
+		result, err := node.GetNodeDiskUsage(clientSet, percentage)
 		if err != nil {
 			log.Error(err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -96,7 +96,7 @@ func main() {
 
 		// 고루틴을 사용하여 NodeDrain 함수를 비동기적으로 실행
 		go func() {
-			err := nodeDiskUsage.NodeDrain(clientSet, percentage)
+			err := node.NodeDrain(clientSet, percentage)
 			if err != nil {
 				// 비동기 처리 중 오류가 발생한 경우, 여기서는 로그만 기록하고 있습니다.
 				log.Error(err)
@@ -125,6 +125,19 @@ func main() {
 			})
 		}
 		return c.Status(fiber.StatusAccepted).SendString("pod metadata")
+	})
+
+	apiV1.Get("/node-usage-pod", func(c *fiber.Ctx) error {
+		nodePodUsages, err := node.GetNodePodUsageByLabel(clientSet)
+		if err != nil {
+			log.Error(err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"msg": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+			"nodePodUsages": nodePodUsages,
+		})
 	})
 
 	log.Fatal(app.Listen(":3000"))
