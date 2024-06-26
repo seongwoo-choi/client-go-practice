@@ -18,38 +18,65 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+type dryRunResult struct {
+	NodeName        string
+	InstanceType    string
+	ProvisionerName string
+	Percentage      float64
+}
+
 // node 무한 루프 => pdb 있는 deployment 댓수 강제 증가 + keda desired 변경 => replicas
 // pdb 무력화했다가 다시 실행하도록 하는 방법..label 변경하는 방법
 // 순단 나도 상관없으면 => kubelet 이 죽었다고 판단하게 할 수 있는 기능으로 사용..
 // 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
 // GracePeriodSeconds 를 0 으로 설정하여 파드를 즉시 삭제하도록 요청할 수 있다.
-func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
+func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string) ([]dryRunResult, error) {
 	overNodes, err := GetNodeMemoryUsage(clientSet, percentage)
 	if err != nil {
 		log.WithError(err).Error("Failed to get node disk usage")
-		return err
+		return nil, err
 	}
 
 	nodes, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		log.WithError(err).Error("Failed to list nodes")
-		return err
+		return nil, err
 	}
 
-	for _, node := range nodes.Items {
-		for _, overNode := range overNodes {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-				if err := drainSingleNode(clientSet, node.Name); err != nil {
-					log.Info("failed to drain node ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-					return err
+	if dryRun == "true" {
+		var dryRunResults []dryRunResult
+		log.Info("Dry run mode enabled")
+		for _, node := range nodes.Items {
+			for _, overNode := range overNodes {
+				provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+				if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
+					log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+					dryRunResults = append(dryRunResults, dryRunResult{
+						NodeName:        node.Name,
+						InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
+						ProvisionerName: provisionerName,
+						Percentage:      overNode.MemoryUsage,
+					})
+				}
+			}
+		}
+		return dryRunResults, nil
+	} else if dryRun == "false" {
+		for _, node := range nodes.Items {
+			for _, overNode := range overNodes {
+				provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+				if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
+					log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+					if err := drainSingleNode(clientSet, node.Name); err != nil {
+						log.Info("failed to drain node ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+						return nil, err
+					}
 				}
 			}
 		}
 	}
 
-	return nil
+	return nil, nil
 }
 
 // drainSingleNode 함수는 하나의 노드에 대해 cordon 및 파드 종료 작업을 수행

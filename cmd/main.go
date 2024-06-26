@@ -93,18 +93,31 @@ func main() {
 		if percentage == "" {
 			percentage = "70"
 		}
+		dryRun := c.Query("dryRun")
+		if dryRun == "" {
+			dryRun = "true"
+		}
 
-		// 고루틴을 사용하여 NodeDrain 함수를 비동기적으로 실행
-		go func() {
-			err := node.NodeDrain(clientSet, percentage)
+		// 오래 걸리는 작업을 비동기적으로 처리하는 동안, 즉시 응답을 반환
+		if dryRun == "true" {
+			dryRunResults, err := node.NodeDrain(clientSet, percentage, dryRun)
 			if err != nil {
 				// 비동기 처리 중 오류가 발생한 경우, 여기서는 로그만 기록하고 있습니다.
 				log.Error(err)
 				// 클라이언트에게 즉시 응답이 반환되므로, 오류 처리를 위한 콜백이나 상태 조회 API가 필요...할수도 있습니다..
 			}
-		}()
-
-		// 오래 걸리는 작업을 비동기적으로 처리하는 동안, 즉시 응답을 반환
+			return c.Status(fiber.StatusOK).JSON(dryRunResults)
+		} else if dryRun == "false" {
+			// 고루틴을 사용하여 NodeDrain 함수를 비동기적으로 실행
+			go func() {
+				_, err := node.NodeDrain(clientSet, percentage, dryRun)
+				if err != nil {
+					// 비동기 처리 중 오류가 발생한 경우, 여기서는 로그만 기록하고 있습니다.
+					log.Error(err)
+					// 클라이언트에게 즉시 응답이 반환되므로, 오류 처리를 위한 콜백이나 상태 조회 API가 필요...할수도 있습니다..
+				}
+			}()
+		}
 		return c.Status(fiber.StatusAccepted).SendString("Node drain process started")
 	})
 
