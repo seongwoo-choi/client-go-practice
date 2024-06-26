@@ -7,9 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -81,11 +78,6 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string
 
 // drainSingleNode 함수는 하나의 노드에 대해 cordon 및 파드 종료 작업을 수행
 func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
-	instanceId, err := getNodeInstanceId(clientSet, nodeName)
-	if err != nil {
-		return fmt.Errorf("failed to get instance ID for node %s: %w", nodeName, err)
-	}
-
 	if err := cordonNode(clientSet, nodeName); err != nil {
 		return fmt.Errorf("failed to cordon node %s: %w", nodeName, err)
 	}
@@ -99,11 +91,6 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 	}
 
 	time.Sleep(3 * time.Minute)
-
-	log.Infof("Terminating instance %s for node %s", instanceId, nodeName)
-	if err := terminateInstance(instanceId); err != nil {
-		return fmt.Errorf("failed to terminate instance %s: %w", instanceId, err)
-	}
 
 	return nil
 }
@@ -227,47 +214,4 @@ func shouldForceDelete(pod coreV1.Pod) bool {
 		}
 	}
 	return false
-}
-
-// 인스턴스 ID 로 EC2 인스턴스를 종료
-func terminateInstance(instanceId string) error {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("ap-northeast-2"),
-	})
-	if err != nil {
-		return err
-	}
-
-	ec2Svc := ec2.New(sess)
-	_, err = ec2Svc.TerminateInstances(&ec2.TerminateInstancesInput{
-		InstanceIds: []*string{aws.String(instanceId)},
-	})
-	if err != nil {
-		return err
-	}
-
-	log.Info("Successfully terminated instance ", instanceId)
-	return nil
-}
-
-func getNodeInstanceId(clientSet kubernetes.Interface, nodeName string) (string, error) {
-	node, err := clientSet.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		log.WithError(err).Errorf("Failed to get node %s", nodeName)
-		return "", err
-	}
-
-	// 로깅으로 메타데이터 확인
-	log.Infof("Node %s providerID: %s", nodeName, node.Spec.ProviderID)
-
-	// EC2 인스턴스 ID 추출
-	if strings.HasPrefix(node.Spec.ProviderID, "aws:///") {
-		splitId := strings.Split(node.Spec.ProviderID, "/")
-		if len(splitId) >= 5 {
-			instanceId := splitId[4]
-			return instanceId, nil
-		}
-	}
-
-	return "", fmt.Errorf("failed to parse instance ID from node %s: providerID %s is malformed", nodeName, node.Spec.ProviderID)
 }
