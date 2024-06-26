@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"time"
 
@@ -12,9 +13,27 @@ import (
 	log "github.com/siddontang/go/log"
 )
 
+type headerRoundTripper struct {
+	headers map[string]string
+	rt      http.RoundTripper
+}
+
+func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	for key, value := range h.headers {
+		req.Header.Add(key, value)
+	}
+	return h.rt.RoundTrip(req)
+}
+
 func CreatePrometheusClient() (api.Client, error) {
 	config := api.Config{
 		Address: os.Getenv("PROMETHEUS_ADDRESS"),
+		RoundTripper: &headerRoundTripper{
+			headers: map[string]string{
+				"X-Scope-OrgID": os.Getenv("PROMETHEUS_SCOPE_ORG_ID"),
+			},
+			rt: http.DefaultTransport,
+		},
 	}
 	return api.NewClient(config)
 }
