@@ -24,7 +24,7 @@ import (
 // 운영에도 쓸 거면 pdb 걸려 있을 때 => 그냥 멈춰야 된다. / 개발 알파에서도 사용할거면 => pdb 걸려서 멈출 경우 pdb 잠시 끄고 드레인(labels 잠깐 변경한다던가..)
 // GracePeriodSeconds 를 0 으로 설정하여 파드를 즉시 삭제하도록 요청할 수 있다.
 func NodeDrain(clientSet *kubernetes.Clientset, percentage string) error {
-	overNodes, err := GetNodeDiskUsage(clientSet, percentage)
+	overNodes, err := GetNodeMemoryUsage(clientSet, percentage)
 	if err != nil {
 		log.WithError(err).Error("Failed to get node disk usage")
 		return err
