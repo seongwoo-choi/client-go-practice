@@ -41,38 +41,47 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string
 	}
 
 	if dryRun == "true" {
-		var dryRunResults []dryRunResult
-		log.Info("Dry run mode enabled")
-		for _, node := range nodes.Items {
-			for _, overNode := range overNodes {
-				provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-				if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-					log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-					dryRunResults = append(dryRunResults, dryRunResult{
-						NodeName:        node.Name,
-						InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
-						ProvisionerName: provisionerName,
-						Percentage:      overNode.MemoryUsage,
-					})
-				}
+		return handleDryRun(nodes, overNodes), nil
+	} else if dryRun == "false" {
+		return handleDrain(clientSet, nodes, overNodes)
+	}
+
+	return nil, nil
+}
+
+func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
+	var dryRunResults []dryRunResult
+	log.Info("Dry run mode enabled")
+	for _, node := range nodes.Items {
+		for _, overNode := range overNodes {
+			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
+				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+				dryRunResults = append(dryRunResults, dryRunResult{
+					NodeName:        node.Name,
+					InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
+					ProvisionerName: provisionerName,
+					Percentage:      overNode.MemoryUsage,
+				})
 			}
 		}
-		return dryRunResults, nil
-	} else if dryRun == "false" {
-		for _, node := range nodes.Items {
-			for _, overNode := range overNodes {
-				provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-				if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-					log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-					if err := drainSingleNode(clientSet, node.Name); err != nil {
-						log.Info("failed to drain node ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-						return nil, err
-					}
+	}
+	return dryRunResults
+}
+
+func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) ([]dryRunResult, error) {
+	for _, node := range nodes.Items {
+		for _, overNode := range overNodes {
+			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
+				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+				if err := drainSingleNode(clientSet, node.Name); err != nil {
+					log.Info("failed to drain node ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+					return nil, err
 				}
 			}
 		}
 	}
-
 	return nil, nil
 }
 
