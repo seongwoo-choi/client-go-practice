@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,10 +44,28 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string
 	if dryRun == "true" {
 		return handleDryRun(nodes, overNodes), nil
 	} else if dryRun == "false" {
+		if err := cordonNodes(clientSet, nodes, overNodes); err != nil {
+			return nil, err
+		}
 		return handleDrain(clientSet, nodes, overNodes)
 	}
 
 	return nil, nil
+}
+
+func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) error {
+	for _, node := range nodes.Items {
+		for _, overNode := range overNodes {
+			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
+				if err := cordonNode(clientSet, node.Name); err != nil {
+					log.WithError(err).Error("Failed to cordon node ", node.Name)
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
@@ -70,13 +89,18 @@ func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dry
 }
 
 func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) ([]dryRunResult, error) {
-	for _, node := range nodes.Items {
-		for _, overNode := range overNodes {
+	// 메모리 사용률 기준으로 정렬
+	sort.Slice(overNodes, func(i, j int) bool {
+		return overNodes[i].MemoryUsage < overNodes[j].MemoryUsage
+	})
+
+	for _, overNode := range overNodes {
+		for _, node := range nodes.Items {
 			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
 			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+				log.Info("Draining node: ", node.Name)
 				if err := drainSingleNode(clientSet, node.Name); err != nil {
-					log.Info("failed to drain node ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
+					log.WithError(err).Error("Failed to drain node ", node.Name)
 					return nil, err
 				}
 			}
@@ -99,7 +123,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 		return fmt.Errorf("failed to wait for pods to terminate on node %s: %w", nodeName, err)
 	}
 
-	time.Sleep(3 * time.Minute)
+	time.Sleep(2 * time.Minute)
 
 	return nil
 }
