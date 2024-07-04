@@ -53,6 +53,30 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string
 	return nil, nil
 }
 
+func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
+	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
+	var dryRunResults []dryRunResult
+	log.Info("Dry run mode enabled")
+	for _, node := range nodes.Items {
+		for _, overNode := range overNodes {
+			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+				for _, label := range drainNodeLabels {
+					if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+						dryRunResults = append(dryRunResults, dryRunResult{
+							NodeName:        node.Name,
+							InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
+							ProvisionerName: provisionerName,
+							Percentage:      overNode.MemoryUsage,
+						})
+					}
+				}
+			}
+		}
+	}
+	return dryRunResults
+}
+
 func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) error {
 	// DRAIN_NODE_LABELS 환경 변수를 쉼표로 구분하여 배열로 변환
 	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
@@ -80,30 +104,6 @@ func checkOverNode(clientSet *kubernetes.Clientset, node coreV1.Node, overNodes 
 		}
 	}
 	return nil
-}
-
-func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
-	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
-	var dryRunResults []dryRunResult
-	log.Info("Dry run mode enabled")
-	for _, node := range nodes.Items {
-		for _, overNode := range overNodes {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
-				for _, label := range drainNodeLabels {
-					if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
-						dryRunResults = append(dryRunResults, dryRunResult{
-							NodeName:        node.Name,
-							InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
-							ProvisionerName: provisionerName,
-							Percentage:      overNode.MemoryUsage,
-						})
-					}
-				}
-			}
-		}
-	}
-	return dryRunResults
 }
 
 func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) ([]dryRunResult, error) {
