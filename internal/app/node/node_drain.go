@@ -56,17 +56,26 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string
 func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) error {
 	// DRAIN_NODE_LABELS 환경 변수를 쉼표로 구분하여 배열로 변환
 	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
+	log.Info(drainNodeLabels)
 
 	for _, node := range nodes.Items {
-		for _, overNode := range overNodes {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
-				for _, label := range drainNodeLabels {
-					if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
-						if err := cordonNode(clientSet, node.Name); err != nil {
-							log.WithError(err).Error("Failed to cordon node ", node.Name)
-							return err
-						}
+		if err := processNode(clientSet, node, overNodes, drainNodeLabels); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func processNode(clientSet *kubernetes.Clientset, node coreV1.Node, overNodes []NodeMemoryUsageType, drainNodeLabels []string) error {
+	for _, overNode := range overNodes {
+		provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+			for _, label := range drainNodeLabels {
+				log.Info(label, provisionerName)
+				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+					if err := cordonNode(clientSet, node.Name); err != nil {
+						log.WithError(err).Error("Failed to cordon node ", node.Name)
+						return err
 					}
 				}
 			}
@@ -76,19 +85,23 @@ func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNo
 }
 
 func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
+	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
 	var dryRunResults []dryRunResult
 	log.Info("Dry run mode enabled")
 	for _, node := range nodes.Items {
 		for _, overNode := range overNodes {
 			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-				dryRunResults = append(dryRunResults, dryRunResult{
-					NodeName:        node.Name,
-					InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
-					ProvisionerName: provisionerName,
-					Percentage:      overNode.MemoryUsage,
-				})
+			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+				for _, label := range drainNodeLabels {
+					if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+						dryRunResults = append(dryRunResults, dryRunResult{
+							NodeName:        node.Name,
+							InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
+							ProvisionerName: provisionerName,
+							Percentage:      overNode.MemoryUsage,
+						})
+					}
+				}
 			}
 		}
 	}
@@ -113,7 +126,7 @@ func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNo
 			}
 		}
 	}
-	
+
 	return nil, nil
 }
 
