@@ -57,21 +57,19 @@ func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNo
 	// DRAIN_NODE_LABELS 환경 변수를 쉼표로 구분하여 배열로 변환
 	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
 	log.Info(drainNodeLabels)
-
 	for _, node := range nodes.Items {
-		if err := processNode(clientSet, node, overNodes, drainNodeLabels); err != nil {
+		if err := checkOverNode(clientSet, node, overNodes, drainNodeLabels); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func processNode(clientSet *kubernetes.Clientset, node coreV1.Node, overNodes []NodeMemoryUsageType, drainNodeLabels []string) error {
+func checkOverNode(clientSet *kubernetes.Clientset, node coreV1.Node, overNodes []NodeMemoryUsageType, drainNodeLabels []string) error {
 	for _, overNode := range overNodes {
 		provisionerName := node.Labels["karpenter.sh/provisioner-name"]
 		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
 			for _, label := range drainNodeLabels {
-				log.Info(label, provisionerName)
 				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
 					if err := cordonNode(clientSet, node.Name); err != nil {
 						log.WithError(err).Error("Failed to cordon node ", node.Name)
@@ -109,25 +107,35 @@ func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dry
 }
 
 func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) ([]dryRunResult, error) {
+	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
 	// 메모리 사용률 기준으로 정렬
 	sort.Slice(overNodes, func(i, j int) bool {
 		return overNodes[i].MemoryUsage < overNodes[j].MemoryUsage
 	})
 
 	for _, overNode := range overNodes {
-		for _, node := range nodes.Items {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				log.Info("Draining node: ", node.Name)
-				if err := drainSingleNode(clientSet, node.Name); err != nil {
-					log.WithError(err).Error("Failed to drain node ", node.Name)
-					return nil, err
-				}
-			}
+		if err := drainMatchingNodes(clientSet, nodes, overNode, drainNodeLabels); err != nil {
+			return nil, err
 		}
 	}
 
 	return nil, nil
+}
+
+func drainMatchingNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNode NodeMemoryUsageType, drainNodeLabels []string) error {
+	for _, node := range nodes.Items {
+		provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+			for _, label := range drainNodeLabels {
+				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+					if err := drainSingleNode(clientSet, node.Name); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // drainSingleNode 함수는 하나의 노드에 대해 cordon 및 파드 종료 작업을 수행
