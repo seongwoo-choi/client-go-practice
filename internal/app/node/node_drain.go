@@ -185,7 +185,7 @@ func evictPods(clientSet *kubernetes.Clientset, nodeName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	gracePeriod := int64(30) // 일반 삭제 시 유예 기간
+	gracePeriod := int64(60) // 일반 삭제 시 유예 기간
 	immediate := int64(0)    // 강제 삭제 시 유예 기간
 	propagationPolicy := metav1.DeletePropagationOrphan
 
