@@ -59,7 +59,7 @@ func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dry
 	log.Info("Dry run mode enabled")
 	for _, node := range nodes.Items {
 		for _, overNode := range overNodes {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+			provisionerName := node.Labels["karpenter.sh/nodepool"]
 			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
 				for _, label := range drainNodeLabels {
 					if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
@@ -91,7 +91,7 @@ func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNo
 
 func checkOverNode(clientSet *kubernetes.Clientset, node coreV1.Node, overNodes []NodeMemoryUsageType, drainNodeLabels []string) error {
 	for _, overNode := range overNodes {
-		provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+		provisionerName := node.Labels["karpenter.sh/nodepool"]
 		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
 			for _, label := range drainNodeLabels {
 				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
