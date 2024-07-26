@@ -53,14 +53,52 @@ func NodeDrain(clientSet *kubernetes.Clientset, percentage string, dryRun string
 	return nil, nil
 }
 
-func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) error {
+func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
+	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
+	var dryRunResults []dryRunResult
+	log.Info("Dry run mode enabled")
 	for _, node := range nodes.Items {
 		for _, overNode := range overNodes {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				if err := cordonNode(clientSet, node.Name); err != nil {
-					log.WithError(err).Error("Failed to cordon node ", node.Name)
-					return err
+			provisionerName := node.Labels["karpenter.sh/nodepool"]
+			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+				for _, label := range drainNodeLabels {
+					if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+						dryRunResults = append(dryRunResults, dryRunResult{
+							NodeName:        node.Name,
+							InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
+							ProvisionerName: provisionerName,
+							Percentage:      overNode.MemoryUsage,
+						})
+					}
+				}
+			}
+		}
+	}
+	return dryRunResults
+}
+
+func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) error {
+	// DRAIN_NODE_LABELS 환경 변수를 쉼표로 구분하여 배열로 변환
+	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
+	log.Info(drainNodeLabels)
+	for _, node := range nodes.Items {
+		if err := checkOverNode(clientSet, node, overNodes, drainNodeLabels); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkOverNode(clientSet *kubernetes.Clientset, node coreV1.Node, overNodes []NodeMemoryUsageType, drainNodeLabels []string) error {
+	for _, overNode := range overNodes {
+		provisionerName := node.Labels["karpenter.sh/nodepool"]
+		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+			for _, label := range drainNodeLabels {
+				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+					if err := cordonNode(clientSet, node.Name); err != nil {
+						log.WithError(err).Error("Failed to cordon node ", node.Name)
+						return err
+					}
 				}
 			}
 		}
@@ -68,45 +106,37 @@ func cordonNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNo
 	return nil
 }
 
-func handleDryRun(nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) []dryRunResult {
-	var dryRunResults []dryRunResult
-	log.Info("Dry run mode enabled")
-	for _, node := range nodes.Items {
-		for _, overNode := range overNodes {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				log.Info("Node Name: ", node.Name, ", instance type: ", node.Labels["beta.kubernetes.io/instance-type"], ", provisioner name: ", provisionerName)
-				dryRunResults = append(dryRunResults, dryRunResult{
-					NodeName:        node.Name,
-					InstanceType:    node.Labels["beta.kubernetes.io/instance-type"],
-					ProvisionerName: provisionerName,
-					Percentage:      overNode.MemoryUsage,
-				})
-			}
-		}
-	}
-	return dryRunResults
-}
-
 func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNodes []NodeMemoryUsageType) ([]dryRunResult, error) {
+	drainNodeLabels := strings.Split(os.Getenv("DRAIN_NODE_LABELS"), ",")
 	// 메모리 사용률 기준으로 정렬
 	sort.Slice(overNodes, func(i, j int) bool {
 		return overNodes[i].MemoryUsage < overNodes[j].MemoryUsage
 	})
 
 	for _, overNode := range overNodes {
-		for _, node := range nodes.Items {
-			provisionerName := node.Labels["karpenter.sh/provisioner-name"]
-			if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) && (provisionerName == os.Getenv("DRAIN_NODE_LABELS_1") || provisionerName == os.Getenv("DRAIN_NODE_LABELS_2")) {
-				log.Info("Draining node: ", node.Name)
-				if err := drainSingleNode(clientSet, node.Name); err != nil {
-					log.WithError(err).Error("Failed to drain node ", node.Name)
-					return nil, err
+		if err := drainMatchingNodes(clientSet, nodes, overNode, drainNodeLabels); err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, nil
+}
+
+func drainMatchingNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNode NodeMemoryUsageType, drainNodeLabels []string) error {
+	for _, node := range nodes.Items {
+		// node_kind 혹은 karpenter.sh/nodepool 으로 변경(karpenter 0.32+ 에서는 karpenter.sh/provisioner-name label 제거 되고 karpenter.sh/nodepool 로 변경됐습니다.)
+		provisionerName := node.Labels["karpenter.sh/nodepool"]
+		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
+			for _, label := range drainNodeLabels {
+				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
+					if err := drainSingleNode(clientSet, node.Name); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 // drainSingleNode 함수는 하나의 노드에 대해 cordon 및 파드 종료 작업을 수행
@@ -123,7 +153,7 @@ func drainSingleNode(clientSet *kubernetes.Clientset, nodeName string) error {
 		return fmt.Errorf("failed to wait for pods to terminate on node %s: %w", nodeName, err)
 	}
 
-	time.Sleep(2 * time.Minute)
+	time.Sleep(1 * time.Minute) // kubelet 이 죽었다고 판단하게 하는 시간
 
 	return nil
 }
@@ -156,7 +186,7 @@ func evictPods(clientSet *kubernetes.Clientset, nodeName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	gracePeriod := int64(30) // 일반 삭제 시 유예 기간
+	gracePeriod := int64(60) // 일반 삭제 시 유예 기간
 	immediate := int64(0)    // 강제 삭제 시 유예 기간
 	propagationPolicy := metav1.DeletePropagationOrphan
 
