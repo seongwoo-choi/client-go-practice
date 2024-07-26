@@ -125,7 +125,7 @@ func handleDrain(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNo
 func drainMatchingNodes(clientSet *kubernetes.Clientset, nodes *coreV1.NodeList, overNode NodeMemoryUsageType, drainNodeLabels []string) error {
 	for _, node := range nodes.Items {
 		// node_kind 혹은 karpenter.sh/nodepool 으로 변경(karpenter 0.32+ 에서는 karpenter.sh/provisioner-name label 제거 되고 karpenter.sh/nodepool 로 변경됐습니다.)
-		provisionerName := node.Labels["karpenter.sh/provisioner-name"]
+		provisionerName := node.Labels["karpenter.sh/nodepool"]
 		if strings.Contains(node.Annotations["alpha.kubernetes.io/provided-node-ip"], overNode.NodeName) {
 			for _, label := range drainNodeLabels {
 				if strings.TrimSpace(provisionerName) == strings.TrimSpace(label) {
